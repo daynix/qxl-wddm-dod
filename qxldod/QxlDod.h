@@ -316,7 +316,6 @@ protected:
     ULONG m_ModeCount;
     PUSHORT m_ModeNumbers;
     USHORT m_CurrentMode;
-    USHORT m_CustomMode;
     ULONG  m_Id;
 };
 
@@ -625,6 +624,8 @@ private:
     static LONG GetMaxSourceMappingHeight(RECT* DirtyRects, ULONG NumDirtyRects);
 
 private:
+    USHORT m_CustomMode;
+
     PUCHAR m_IoBase;
     BOOLEAN m_IoMapped;
     ULONG m_IoSize;
