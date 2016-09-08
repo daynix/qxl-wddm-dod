@@ -2380,7 +2380,7 @@ VgaDevice::~VgaDevice(void)
     PAGED_CODE();
     HWClose();
     delete [] reinterpret_cast<BYTE*>(m_ModeInfo);
-    delete [] reinterpret_cast<BYTE*>(m_ModeNumbers);
+    delete [] m_ModeNumbers;
     m_ModeInfo = NULL;
     m_ModeNumbers = NULL;
     m_CurrentMode = 0;
@@ -2511,7 +2511,7 @@ NTSTATUS VgaDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
     DbgPrint(TRACE_LEVEL_INFORMATION, ("ModeCount %d\n", ModeCount));
 
     delete [] reinterpret_cast<BYTE*>(m_ModeInfo);
-    delete [] reinterpret_cast<BYTE*>(m_ModeNumbers);
+    delete [] m_ModeNumbers;
     m_ModeInfo = NULL;
     m_ModeNumbers = NULL;
 
@@ -2524,7 +2524,7 @@ NTSTATUS VgaDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
     }
     RtlZeroMemory(m_ModeInfo, sizeof (VIDEO_MODE_INFORMATION) * ModeCount);
 
-    m_ModeNumbers = reinterpret_cast<PUSHORT> (new (PagedPool)  BYTE [sizeof (USHORT) * ModeCount]);
+    m_ModeNumbers = new (PagedPool) USHORT[ModeCount];
     if (!m_ModeNumbers)
     {
         Status = STATUS_NO_MEMORY;
@@ -3072,7 +3072,7 @@ QxlDevice::~QxlDevice(void)
     PAGED_CODE();
     HWClose();
     delete [] reinterpret_cast<BYTE*>(m_ModeInfo);
-    delete [] reinterpret_cast<BYTE*>(m_ModeNumbers);
+    delete [] m_ModeNumbers;
     m_ModeInfo = NULL;
     m_ModeNumbers = NULL;
     m_CurrentMode = 0;
@@ -3153,7 +3153,7 @@ NTSTATUS QxlDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
     }
 
     delete [] reinterpret_cast<BYTE*>(m_ModeInfo);
-    delete [] reinterpret_cast<BYTE*>(m_ModeNumbers);
+    delete [] m_ModeNumbers;
     m_ModeInfo = NULL;
     m_ModeNumbers = NULL;
 
@@ -3167,7 +3167,7 @@ NTSTATUS QxlDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
     }
     RtlZeroMemory(m_ModeInfo, sizeof (VIDEO_MODE_INFORMATION) * ModeCount);
 
-    m_ModeNumbers = reinterpret_cast<PUSHORT> (new (PagedPool)  BYTE [sizeof (USHORT) * ModeCount]);
+    m_ModeNumbers = new (PagedPool) USHORT[ModeCount];
     if (!m_ModeNumbers)
     {
         Status = STATUS_NO_MEMORY;
