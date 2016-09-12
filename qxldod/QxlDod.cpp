@@ -4027,7 +4027,7 @@ UINT64 QxlDevice::ReleaseOutput(UINT64 output_id)
     for (now = output->resources, end = now + output->num_res; now < end; now++) {
         RELEASE_RES(*now);
     }
-    next = *(UINT64*)output->data;
+    next = ((QXLReleaseInfo*)output->data)->next;
     FreeMem(output);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<---%s\n", __FUNCTION__));
     return next;
