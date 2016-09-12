@@ -235,22 +235,15 @@ DodGetScanLine(
 #if DBG
 
 extern int nDebugLevel;
-void DebugPrintFuncSerial(const char *format, ...);
 void DebugPrint(int level, const char *fmt, ...);
 
 #define DbgExpandArguments(...) __VA_ARGS__
 
-#define DbgPrint(level, line) do { \
-    if (level <= nDebugLevel) DebugPrintFuncSerial line; \
-    DebugPrint(level, DbgExpandArguments line); \
-} while(0)
-
+#define DbgPrint(level, line) \
+    DebugPrint(level, DbgExpandArguments line)
 #else
-#define DbgPrint(level, line)
+#define DbgPrint(level, line) {}
 #endif
-
-//    else if (0) DebugPrintFuncSerial line \
-
 
 #ifndef TRACE_LEVEL_INFORMATION
 #define TRACE_LEVEL_NONE        0   // Tracing is not on

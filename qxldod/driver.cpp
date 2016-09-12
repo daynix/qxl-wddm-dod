@@ -741,13 +741,11 @@ DodSystemDisplayWrite(
 #define RHEL_DEBUG_PORT     ((PUCHAR)0x3F8)
 #define TEMP_BUFFER_SIZE    256
 
-void DebugPrintFuncSerial(const char *format, ...)
+static void DebugPrintFuncSerial(const char *format, va_list list)
 {
     char buf[TEMP_BUFFER_SIZE];
     NTSTATUS status;
     size_t len;
-    va_list list;
-    va_start(list, format);
     status = RtlStringCbVPrintfA(buf, sizeof(buf), format, list);
     if (status == STATUS_SUCCESS)
     {
@@ -768,11 +766,17 @@ void DebugPrintFuncSerial(const char *format, ...)
 
 void DebugPrint(int level, const char *fmt, ...)
 {
+    va_list list;
+    if (level <= nDebugLevel) {
+        va_start(list, fmt);
+        DebugPrintFuncSerial(fmt, list);
+        va_end(list);
+    }
+
     static const ULONG xlate[] = { 0, 0, 1, 2, 3 };
     if (level <= 0 || level > 5)
         return;
 
-    va_list list;
     va_start(list, fmt);
     vDbgPrintEx(DPFLTR_IHVVIDEO_ID, xlate[level - 1], fmt, list);
     va_end(list);
