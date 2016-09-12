@@ -5012,17 +5012,6 @@ VOID QxlDevice::DpcRoutine(PVOID)
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
-VOID QxlDevice::UpdateArea(CONST RECT* area, UINT32 surface_id)
-{
-    PAGED_CODE();
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
-    CopyRect(&m_RamHdr->update_area, area);
-    m_RamHdr->update_surface = surface_id;
-//    AsyncIo(QXL_IO_UPDATE_AREA_ASYNC, 0);
-    SyncIo(QXL_IO_UPDATE_AREA, 0);
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
-}
-
 QXL_NON_PAGED
 UINT BPPFromPixelFormat(D3DDDIFORMAT Format)
 {

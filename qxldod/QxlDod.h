@@ -562,7 +562,6 @@ protected:
     QXLDrawable *GetDrawable();
     QXLCursorCmd *CursorCmd();
     void *AllocMem(UINT32 mspace_type, size_t size, BOOL force);
-    VOID UpdateArea(CONST RECT* area, UINT32 surface_id);
     VOID SetImageId(InternalImage *internal,
                     BOOL cache_me,
                     LONG width,
