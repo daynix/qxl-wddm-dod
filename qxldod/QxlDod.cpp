@@ -4014,17 +4014,6 @@ void QxlDevice::FlushReleaseRing()
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
-void QxlDevice::EmptyReleaseRing()
-{
-    PAGED_CODE();
-    BOOLEAN locked = FALSE;
-    locked = WaitForObject(&m_MemLock, NULL);
-    while (m_FreeOutputs || !SPICE_RING_IS_EMPTY(m_ReleaseRing)) {
-        FlushReleaseRing();
-    }
-    ReleaseMutex(&m_MemLock, locked);
-}
-
 UINT64 QxlDevice::ReleaseOutput(UINT64 output_id)
 {
     PAGED_CODE();

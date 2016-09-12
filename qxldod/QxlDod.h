@@ -593,7 +593,6 @@ private:
     void FreeMem(void *ptr);
     UINT64 ReleaseOutput(UINT64 output_id);
     void WaitForReleaseRing(void);
-    void EmptyReleaseRing(void);
     BOOL SetClip(const RECT *clip, QXLDrawable *drawable);
     void AddRes(QXLOutput *output, Resource *res);
     void DrawableAddRes(QXLDrawable *drawable, Resource *res);
