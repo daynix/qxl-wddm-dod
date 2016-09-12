@@ -236,7 +236,6 @@ DodGetScanLine(
 
 extern int nDebugLevel;
 void DebugPrintFuncSerial(const char *format, ...);
-void DebugPrintFunc(const char *format, ...);
 void DebugPrint(int level, const char *fmt, ...);
 
 #define DbgExpandArguments(...) __VA_ARGS__

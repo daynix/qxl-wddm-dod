@@ -766,13 +766,6 @@ void DebugPrintFuncSerial(const char *format, ...)
     }
 }
 
-void DebugPrintFunc(const char *format, ...)
-{
-    va_list list;
-    va_start(list, format);
-    vDbgPrintEx(DPFLTR_DEFAULT_ID, 9 | DPFLTR_MASK, format, list);
-}
-
 void DebugPrint(int level, const char *fmt, ...)
 {
     static const ULONG xlate[] = { 0, 0, 1, 2, 3 };
