@@ -2489,7 +2489,7 @@ NTSTATUS VgaDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
 
    for (ModeCount = 0; ; ModeCount++)
    {
-      /* Read the VBE mode number. */
+        /* Read the VBE mode number. */
         Status = x86BiosReadMemory (
                     HIWORD(VbeInfo.VideoModePtr),
                     LOWORD(VbeInfo.VideoModePtr) + (ModeCount << 1),
@@ -2501,12 +2501,12 @@ NTSTATUS VgaDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
             DbgPrint(TRACE_LEVEL_ERROR, ("x86BiosReadMemory failed with Status: 0x%X\n", Status));
             break;
         }
-      /* End of list? */
+        /* End of list? */
         if (ModeTemp == 0xFFFF || ModeTemp == 0)
         {
             break;
         }
-   }
+    }
 
     DbgPrint(TRACE_LEVEL_INFORMATION, ("ModeCount %d\n", ModeCount));
 
