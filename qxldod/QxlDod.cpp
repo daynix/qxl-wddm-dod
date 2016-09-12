@@ -3700,9 +3700,8 @@ void QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT8 *vas
 
     SetupHWSlot(Idx + 1, pSlot);
 
-    pSlot->generation = m_RomHdr->slot_generation;
     high_bits = slot_index << m_SlotGenBits;
-    high_bits |= pSlot->generation;
+    high_bits |= m_RomHdr->slot_generation;
     high_bits <<= (64 - (m_SlotGenBits + m_SlotIdBits));
     pSlot->high_bits = high_bits;
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));

@@ -361,7 +361,6 @@ private:
 };
 
 typedef struct _MemSlot {
-    UINT8 generation;
     UINT64 start_phys_addr;
     UINT64 end_phys_addr;
     UINT8 *start_virt_addr;
