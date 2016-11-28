@@ -2914,6 +2914,7 @@ QxlDevice::QxlDevice(_In_ QxlDod* pQxlDod)
     m_CustomMode = 0;
     m_FreeOutputs = 0;
     m_Pending = 0;
+    m_PresentThread = NULL;
 }
 
 QxlDevice::~QxlDevice(void)
@@ -3293,6 +3294,26 @@ NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION*
     return QxlInit(pDispInfo);
 }
 
+NTSTATUS QxlDevice::StartPresentThread()
+{
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    NTSTATUS Status;
+
+    KeClearEvent(&m_PresentThreadReadyEvent);
+
+    InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+    Status = PsCreateSystemThread(
+        &m_PresentThread,
+        THREAD_ALL_ACCESS,
+        &ObjectAttributes,
+        NULL,
+        NULL,
+        PresentThreadRoutineWrapper,
+        this);
+
+    return Status;
+}
+
 NTSTATUS QxlDevice::QxlInit(DXGK_DISPLAY_INFORMATION* pDispInfo)
 {
     PAGED_CODE();
@@ -3319,12 +3340,17 @@ NTSTATUS QxlDevice::QxlInit(DXGK_DISPLAY_INFORMATION* pDispInfo)
     InitDeviceMemoryResources();
     InitMonitorConfig();
     Status = AcquireDisplayInfo(*(pDispInfo));
+    if (NT_SUCCESS(Status))
+    {
+        Status = StartPresentThread();
+    }
     return Status;
 }
 
 void QxlDevice::QxlClose()
 {
     PAGED_CODE();
+    StopPresentThread();
     DestroyMemSlots();
 }
 
@@ -3461,6 +3487,12 @@ BOOL QxlDevice::CreateEvents()
     KeInitializeEvent(&m_IoCmdEvent,
                       SynchronizationEvent,
                       FALSE);
+    KeInitializeEvent(&m_PresentEvent,
+                      SynchronizationEvent,
+                      FALSE);
+    KeInitializeEvent(&m_PresentThreadReadyEvent,
+                      SynchronizationEvent,
+                      FALSE);
     KeInitializeMutex(&m_MemLock,1);
     KeInitializeMutex(&m_CmdLock,1);
     KeInitializeMutex(&m_IoLock,1);
@@ -3477,6 +3509,7 @@ BOOL QxlDevice::CreateRings()
     m_CommandRing = &(m_RamHdr->cmd_ring);
     m_CursorRing = &(m_RamHdr->cursor_ring);
     m_ReleaseRing = &(m_RamHdr->release_ring);
+    SPICE_RING_INIT(m_PresentRing);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return TRUE;
 }
@@ -4801,4 +4834,167 @@ NTSTATUS HwDeviceInterface::AcquireDisplayInfo(DXGK_DISPLAY_INFORMATION& DispInf
         }
     }
     return Status;
+}
+
+void QxlDevice::PresentThreadRoutine()
+{
+    PAGED_CODE();
+    int wait;
+    int notify;
+    QXLDrawable** drawables;
+
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("--->%s\n", __FUNCTION__));
+
+    while (1)
+    {
+        // Pop a drawables list from the ring
+        // No need for a mutex, only one consumer thread
+        SPICE_RING_CONS_WAIT(m_PresentRing, wait);
+        while (wait) {
+            WaitForObject(&m_PresentEvent, NULL);
+            SPICE_RING_CONS_WAIT(m_PresentRing, wait);
+        }
+        drawables = *SPICE_RING_CONS_ITEM(m_PresentRing);
+        SPICE_RING_POP(m_PresentRing, notify);
+        if (notify) {
+            KeSetEvent(&m_PresentThreadReadyEvent, 0, FALSE);
+        }
+
+        if (drawables) {
+            for (UINT i = 0; drawables[i]; ++i)
+                PushDrawable(drawables[i]);
+            delete[] reinterpret_cast<BYTE*>(drawables);
+        }
+        else {
+            DbgPrint(TRACE_LEVEL_INFORMATION, ("%s is being terminated\n", __FUNCTION__));
+            break;
+        }
+    }
+}
+
+void QxlDevice::StopPresentThread()
+{
+    PVOID pDispatcherObject;
+    if (m_PresentThread)
+    {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("---> %s\n", __FUNCTION__));
+        NTSTATUS Status = ObReferenceObjectByHandle(
+            m_PresentThread, 0, NULL, KernelMode, &pDispatcherObject, NULL);
+        if (NT_SUCCESS(Status))
+        {
+            PostToWorkerThread(NULL);
+            WaitForObject(pDispatcherObject, NULL);
+            ObDereferenceObject(pDispatcherObject);
+        }
+        ZwClose(m_PresentThread);
+        m_PresentThread = NULL;
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("<--- %s\n", __FUNCTION__));
+    }
+}
+
+void QxlDevice::PostToWorkerThread(QXLDrawable** drawables)
+{
+    // Push drawables into PresentRing and notify worker thread
+    int notify, wait;
+    SPICE_RING_PROD_WAIT(m_PresentRing, wait);
+    while (wait) {
+        WaitForObject(&m_PresentThreadReadyEvent, NULL);
+        SPICE_RING_PROD_WAIT(m_PresentRing, wait);
+    }
+    *SPICE_RING_PROD_ITEM(m_PresentRing) = drawables;
+    SPICE_RING_PUSH(m_PresentRing, notify);
+    if (notify) {
+        KeSetEvent(&m_PresentEvent, 0, FALSE);
+    }
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("<--- %s\n", __FUNCTION__));
+}
+
+QXLDrawable* QxlDevice::DrawableFromRect(DoPresentMemory *ctx, CONST RECT* pRect)
+{
+    PAGED_CODE();
+    QXLDrawable *drawable;
+    Resource *image_res;
+    InternalImage *internal;
+    size_t alloc_size;
+    QXLDataChunk *chunk;
+    UINT32 line_size;
+    LONG width;
+    LONG height;
+
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s device %d\n", __FUNCTION__, m_Id));
+
+    if (!(drawable = Drawable(QXL_DRAW_COPY, pRect, NULL, 0))) {
+        DbgPrint(TRACE_LEVEL_ERROR, ("Cannot get Drawable.\n"));
+        return NULL;
+    }
+
+    drawable->u.copy.scale_mode = SPICE_IMAGE_SCALE_MODE_NEAREST;
+    drawable->u.copy.mask.bitmap = 0;
+    drawable->u.copy.rop_descriptor = SPICE_ROPD_OP_PUT;
+
+    drawable->surfaces_dest[0] = 0;
+    CopyRect(&drawable->surfaces_rects[0], pRect);
+
+    drawable->self_bitmap = TRUE;
+    CopyRect(&drawable->self_bitmap_area, pRect);
+
+    height = pRect->bottom - pRect->top;
+    width = pRect->right - pRect->left;
+    line_size = width * 4;
+
+    drawable->u.copy.src_area.bottom = height;
+    drawable->u.copy.src_area.left = 0;
+    drawable->u.copy.src_area.top = 0;
+    drawable->u.copy.src_area.right = width;
+
+    alloc_size = BITMAP_ALLOC_BASE + BITS_BUF_MAX - BITS_BUF_MAX % line_size;
+    alloc_size = MIN(BITMAP_ALLOC_BASE + height * line_size, alloc_size);
+    image_res = (Resource*)AllocMem(MSPACE_TYPE_VRAM, alloc_size, TRUE);
+
+    image_res->refs = 1;
+    image_res->free = FreeBitmapImageEx;
+    image_res->ptr = this;
+
+    internal = (InternalImage *)image_res->res;
+    SetImageId(internal, FALSE, width, height, SPICE_BITMAP_FMT_32BIT, 0);
+    internal->image.descriptor.flags = 0;
+    internal->image.descriptor.type = SPICE_IMAGE_TYPE_BITMAP;
+    chunk = (QXLDataChunk *)(&internal->image.bitmap + 1);
+    chunk->data_size = 0;
+    chunk->prev_chunk = 0;
+    chunk->next_chunk = 0;
+    internal->image.bitmap.data = PA(chunk, m_SurfaceMemSlot);
+    internal->image.bitmap.flags = QXL_BITMAP_TOP_DOWN;
+    internal->image.descriptor.width = internal->image.bitmap.x = width;
+    internal->image.descriptor.height = internal->image.bitmap.y = height;
+    internal->image.bitmap.format = SPICE_BITMAP_FMT_RGBA;
+    internal->image.bitmap.stride = line_size;
+
+    UINT8* src = (UINT8*)ctx->SrcAddr +
+        (pRect->top) * ctx->SrcPitch +
+        (pRect->left * 4);
+    UINT8* src_end = src + ctx->SrcPitch * height;
+    UINT8* dest = chunk->data;
+    UINT8* dest_end = (UINT8 *)image_res + alloc_size;
+    alloc_size = height * line_size;
+
+    for (; src != src_end; src += ctx->SrcPitch, alloc_size -= line_size) {
+        PutBytesAlign(&chunk, &dest, &dest_end, src,
+            line_size, alloc_size, line_size);
+    }
+
+    internal->image.bitmap.palette = 0;
+
+    drawable->u.copy.src_bitmap = PA(&internal->image, m_SurfaceMemSlot);
+
+    CopyRect(&drawable->surfaces_rects[1], pRect);
+    DrawableAddRes(drawable, image_res);
+    RELEASE_RES(image_res);
+
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("%s drawable= %p type = %d, effect = %d Dest right(%d) left(%d) top(%d) bottom(%d) src_bitmap= %p.\n", __FUNCTION__,
+        drawable, drawable->type, drawable->effect, drawable->surfaces_rects[0].right, drawable->surfaces_rects[0].left,
+        drawable->surfaces_rects[0].top, drawable->surfaces_rects[0].bottom,
+        drawable->u.copy.src_bitmap));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
+    return drawable;
 }
