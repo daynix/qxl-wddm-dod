@@ -245,18 +245,7 @@ public:
     USHORT GetModeNumber(USHORT idx) {return m_ModeNumbers[idx];}
     USHORT GetCurrentModeIndex(void) {return m_CurrentMode;}
     VOID SetCurrentModeIndex(USHORT idx) {m_CurrentMode = idx;}
-    virtual NTSTATUS ExecutePresentDisplayOnly(_In_ BYTE*             DstAddr,
-                                 _In_ UINT              DstBitPerPixel,
-                                 _In_ BYTE*             SrcAddr,
-                                 _In_ UINT              SrcBytesPerPixel,
-                                 _In_ LONG              SrcPitch,
-                                 _In_ ULONG             NumMoves,
-                                 _In_ D3DKMT_MOVE_RECT* pMoves,
-                                 _In_ ULONG             NumDirtyRects,
-                                 _In_ RECT*             pDirtyRect,
-                                 _In_ D3DKMDT_VIDPN_PRESENT_PATH_ROTATION Rotation,
-                                 _In_ const CURRENT_BDD_MODE* pModeCur) = 0;
-
+    virtual NTSTATUS ExecutePresentDisplayOnly(DoPresentMemory * ctx) = 0;
     virtual VOID BlackOutScreen(CURRENT_BDD_MODE* pCurrentBddMod) = 0;
     virtual NTSTATUS SetPointerShape(_In_ CONST DXGKARG_SETPOINTERSHAPE* pSetPointerShape) = 0;
     virtual NTSTATUS SetPointerPosition(_In_ CONST DXGKARG_SETPOINTERPOSITION* pSetPointerPosition) = 0;
@@ -288,17 +277,7 @@ public:
     NTSTATUS SetPowerState(DEVICE_POWER_STATE DevicePowerState, DXGK_DISPLAY_INFORMATION* pDispInfo);
     NTSTATUS HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION* pDispInfo);
     NTSTATUS HWClose(void);
-    NTSTATUS ExecutePresentDisplayOnly(_In_ BYTE*             DstAddr,
-                                 _In_ UINT              DstBitPerPixel,
-                                 _In_ BYTE*             SrcAddr,
-                                 _In_ UINT              SrcBytesPerPixel,
-                                 _In_ LONG              SrcPitch,
-                                 _In_ ULONG             NumMoves,
-                                 _In_ D3DKMT_MOVE_RECT* pMoves,
-                                 _In_ ULONG             NumDirtyRects,
-                                 _In_ RECT*             pDirtyRect,
-                                 _In_ D3DKMDT_VIDPN_PRESENT_PATH_ROTATION Rotation,
-                                 _In_ const CURRENT_BDD_MODE* pModeCur);
+    NTSTATUS ExecutePresentDisplayOnly(DoPresentMemory * ctx);
     VOID BlackOutScreen(CURRENT_BDD_MODE* pCurrentBddMod);
     QXL_NON_PAGED BOOLEAN InterruptRoutine(_In_ PDXGKRNL_INTERFACE pDxgkInterface, _In_  ULONG MessageNumber);
     QXL_NON_PAGED VOID DpcRoutine(PVOID);
@@ -466,17 +445,7 @@ public:
     NTSTATUS SetPowerState(DEVICE_POWER_STATE DevicePowerState, DXGK_DISPLAY_INFORMATION* pDispInfo);
     NTSTATUS HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION* pDispInfo);
     NTSTATUS HWClose(void);
-    NTSTATUS ExecutePresentDisplayOnly(_In_ BYTE*             DstAddr,
-                    _In_ UINT              DstBitPerPixel,
-                    _In_ BYTE*             SrcAddr,
-                    _In_ UINT              SrcBytesPerPixel,
-                    _In_ LONG              SrcPitch,
-                    _In_ ULONG             NumMoves,
-                    _In_ D3DKMT_MOVE_RECT* pMoves,
-                    _In_ ULONG             NumDirtyRects,
-                    _In_ RECT*             pDirtyRect,
-                    _In_ D3DKMDT_VIDPN_PRESENT_PATH_ROTATION Rotation,
-                    _In_ const CURRENT_BDD_MODE* pModeCur);
+    NTSTATUS ExecutePresentDisplayOnly(DoPresentMemory * ctx);
     VOID BlackOutScreen(CURRENT_BDD_MODE* pCurrentBddMod);
     QXL_NON_PAGED BOOLEAN InterruptRoutine(_In_ PDXGKRNL_INTERFACE pDxgkInterface, _In_  ULONG MessageNumber);
     QXL_NON_PAGED VOID DpcRoutine(PVOID);
@@ -486,11 +455,7 @@ public:
     NTSTATUS Escape(_In_ CONST DXGKARG_ESCAPE* pEscap);
 protected:
     NTSTATUS GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo);
-    VOID BltBits (BLT_INFO* pDst,
-                    CONST BLT_INFO* pSrc,
-                    UINT  NumRects,
-                    _In_reads_(NumRects) CONST RECT *pRects,
-                    POINT*   pSourcePoint);
+    QXLDrawable *DrawableCopy(const RECT& rect, const POINT& sourcePoint);
     QXLDrawable *Drawable(UINT8 type,
                     CONST RECT *area,
                     CONST RECT *clip,
@@ -619,6 +584,17 @@ private:
 
     QXLPresentOnlyRing m_PresentRing[1];
     HANDLE m_PresentThread;
+
+    struct
+    {
+        LARGE_INTEGER lastTimeStamp;
+        LONGLONG      callTime;
+        LONGLONG      threadTime;
+        LONGLONG      cursorTime;
+        ULONG         maxQueueLevel;
+        LONGLONG      moves;
+        LONGLONG      dirties;
+    } DebugInfo;
 };
 
 class QxlDod {
@@ -759,6 +735,10 @@ private:
     NTSTATUS IsVidPnSourceModeFieldsValid(CONST D3DKMDT_VIDPN_SOURCE_MODE* pSourceMode) const;
     NTSTATUS IsVidPnPathFieldsValid(CONST D3DKMDT_VIDPN_PRESENT_PATH* pPath) const;
     NTSTATUS RegisterHWInfo(_In_ ULONG Id);
+    NTSTATUS MapSourceIntoSystemSpace(
+        _In_ CONST DXGKARG_PRESENT_DISPLAYONLY* pPresentDisplayOnly,
+        _Out_ PMDL& mdl,
+        _Out_ BYTE*& sysAddr);
 };
 
 NTSTATUS

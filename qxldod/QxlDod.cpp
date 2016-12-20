@@ -462,6 +462,61 @@ NTSTATUS QxlDod::Escape(_In_ CONST DXGKARG_ESCAPE* pEscape)
     return Status;
 }
 
+NTSTATUS QxlDod::MapSourceIntoSystemSpace(_In_ CONST DXGKARG_PRESENT_DISPLAYONLY* pPresentDisplayOnly,
+    PMDL & mdl, BYTE* & sysAddr)
+{
+    PAGED_CODE();
+#if 1 //DO_NOT_MAP_SRC_BUFFER
+    mdl = NULL;
+    sysAddr = (BYTE *)pPresentDisplayOnly->pSource;
+    return STATUS_SUCCESS;
+#endif
+    LONG maxHeight = 0;
+    for (ULONG i = 0; i < pPresentDisplayOnly->NumMoves; ++i)
+        if (pPresentDisplayOnly->pMoves[i].DestRect.bottom > maxHeight)
+            maxHeight = pPresentDisplayOnly->pMoves[i].DestRect.bottom;
+    for (ULONG i = 0; i < pPresentDisplayOnly->NumDirtyRects; ++i)
+        if (pPresentDisplayOnly->pDirtyRect[i].bottom > maxHeight)
+            maxHeight = pPresentDisplayOnly->pDirtyRect[i].bottom;
+    UINT mapSize = pPresentDisplayOnly->Pitch * maxHeight;
+
+    mdl = IoAllocateMdl(pPresentDisplayOnly->pSource, mapSize, FALSE, FALSE, NULL);
+    if (!mdl)
+    {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    KPROCESSOR_MODE AccessMode =
+        static_cast<KPROCESSOR_MODE>(pPresentDisplayOnly->pSource <= (PVOID)MM_USER_PROBE_ADDRESS ?
+            UserMode : KernelMode);
+    __try
+    {
+        // Probe and lock the pages of this buffer in physical memory.
+        // We need only IoReadAccess.
+        MmProbeAndLockPages(mdl, AccessMode, IoReadAccess);
+    }
+#pragma prefast(suppress: __WARNING_EXCEPTIONEXECUTEHANDLER, "try/except is only able to protect against user-mode errors and these are the only errors we try to catch here");
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        NTSTATUS Status = GetExceptionCode();
+        IoFreeMdl(mdl);
+        return Status;
+    }
+
+    // Map the physical pages described by the MDL into system space.
+    // Note: double mapping the buffer this way causes lot of system
+    // overhead for large size buffers.
+    sysAddr = reinterpret_cast<BYTE*>
+        (MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority | MdlMappingNoExecute));
+
+    if (!sysAddr) {
+        MmUnlockPages(mdl);
+        IoFreeMdl(mdl);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    return STATUS_SUCCESS;
+}
 
 NTSTATUS QxlDod::PresentDisplayOnly(_In_ CONST DXGKARG_PRESENT_DISPLAYONLY* pPresentDisplayOnly)
 {
@@ -482,7 +537,7 @@ NTSTATUS QxlDod::PresentDisplayOnly(_In_ CONST DXGKARG_PRESENT_DISPLAYONLY* pPre
     if ((m_MonitorPowerState > PowerDeviceD0) ||
         (m_CurrentModes[pPresentDisplayOnly->VidPnSourceId].Flags.SourceNotVisible))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("<--- %s\n", __FUNCTION__));
+        DbgPrint(TRACE_LEVEL_ERROR, ("<--- %s skipped\n", __FUNCTION__));
         return STATUS_SUCCESS;
     }
 
@@ -504,18 +559,38 @@ NTSTATUS QxlDod::PresentDisplayOnly(_In_ CONST DXGKARG_PRESENT_DISPLAYONLY* pPre
             m_CurrentModes[pPresentDisplayOnly->VidPnSourceId].SrcModeWidth)*DstBitPerPixel/8;
         pDst += (int)CenterShift/2;
     }
-    Status = m_pHWDevice->ExecutePresentDisplayOnly(
-                        pDst,
-                        DstBitPerPixel,
-                        (BYTE*)pPresentDisplayOnly->pSource,
-                        pPresentDisplayOnly->BytesPerPixel,
-                        pPresentDisplayOnly->Pitch,
-                        pPresentDisplayOnly->NumMoves,
-                        pPresentDisplayOnly->pMoves,
-                        pPresentDisplayOnly->NumDirtyRects,
-                        pPresentDisplayOnly->pDirtyRect,
-                        RotationNeededByFb,
-                        &m_CurrentModes[0]);
+
+    PMDL mdl;
+    BYTE* sysAddr;
+    if ((Status = MapSourceIntoSystemSpace(pPresentDisplayOnly, mdl, sysAddr)) != STATUS_SUCCESS)
+        return Status;
+
+    DoPresentMemory ctx;
+
+    ctx.DstAddr = pDst;
+    ctx.DstBitPerPixel = DstBitPerPixel;
+    ctx.DstStride = m_CurrentModes[pPresentDisplayOnly->VidPnSourceId].DispInfo.Pitch;
+    ctx.SrcWidth = m_CurrentModes[pPresentDisplayOnly->VidPnSourceId].SrcModeWidth;
+    ctx.SrcHeight = m_CurrentModes[pPresentDisplayOnly->VidPnSourceId].SrcModeHeight;
+    ctx.SrcAddr = sysAddr;
+    ctx.SrcPitch = pPresentDisplayOnly->Pitch;
+    ctx.Rotation = RotationNeededByFb;
+    ctx.NumMoves = pPresentDisplayOnly->NumMoves;
+    ctx.Moves = pPresentDisplayOnly->pMoves;
+    ctx.NumDirtyRects = pPresentDisplayOnly->NumDirtyRects;
+    ctx.DirtyRect = pPresentDisplayOnly->pDirtyRect;
+    ctx.DisplaySource = m_pHWDevice;
+    ctx.Mdl = mdl;
+
+    Status = m_pHWDevice->ExecutePresentDisplayOnly(&ctx);
+
+    if (ctx.Mdl)
+    {
+        // Unmap and unlock the pages.
+        MmUnlockPages(ctx.Mdl);
+        IoFreeMdl(ctx.Mdl);
+    }
+
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return Status;
 }
@@ -1622,16 +1697,16 @@ NTSTATUS QxlDod::UpdateActiveVidPnPresentPath(_In_ CONST DXGKARG_UPDATEACTIVEVID
 QXL_NON_PAGED
 VOID QxlDod::DpcRoutine(VOID)
 {
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("---> %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
     m_pHWDevice->DpcRoutine(&m_DxgkInterface);
     m_DxgkInterface.DxgkCbNotifyDpc((HANDLE)m_DxgkInterface.DeviceHandle);
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("<--- %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
 QXL_NON_PAGED
 BOOLEAN QxlDod::InterruptRoutine(_In_  ULONG MessageNumber)
 {
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("<--> 0 %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--> 0 %s\n", __FUNCTION__));
     if (m_Flags.DriverStarted && m_pHWDevice) {
         return m_pHWDevice->InterruptRoutine(&m_DxgkInterface, MessageNumber);
     }
@@ -2585,142 +2660,10 @@ NTSTATUS VgaDevice::SetPowerState(DEVICE_POWER_STATE DevicePowerState, DXGK_DISP
 
 
 NTSTATUS
-VgaDevice::ExecutePresentDisplayOnly(
-    _In_ BYTE*             DstAddr,
-    _In_ UINT              DstBitPerPixel,
-    _In_ BYTE*             SrcAddr,
-    _In_ UINT              SrcBytesPerPixel,
-    _In_ LONG              SrcPitch,
-    _In_ ULONG             NumMoves,
-    _In_ D3DKMT_MOVE_RECT* Moves,
-    _In_ ULONG             NumDirtyRects,
-    _In_ RECT*             DirtyRect,
-    _In_ D3DKMDT_VIDPN_PRESENT_PATH_ROTATION Rotation,
-    _In_ const CURRENT_BDD_MODE* pModeCur)
-/*++
-
-  Routine Description:
-
-    The method creates present worker thread and provides context
-    for it filled with present commands
-
-  Arguments:
-
-    DstAddr - address of destination surface
-    DstBitPerPixel - color depth of destination surface
-    SrcAddr - address of source surface
-    SrcBytesPerPixel - bytes per pixel of source surface
-    SrcPitch - source surface pitch (bytes in a row)
-    NumMoves - number of moves to be copied
-    Moves - moves' data
-    NumDirtyRects - number of rectangles to be copied
-    DirtyRect - rectangles' data
-    Rotation - roatation to be performed when executing copy
-    CallBack - callback for present worker thread to report execution status
-
-  Return Value:
-
-    Status
-
---*/
+VgaDevice::ExecutePresentDisplayOnly(DoPresentMemory* ctx)
 {
-
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
-
-    NTSTATUS Status = STATUS_SUCCESS;
-
-    SIZE_T sizeMoves = NumMoves*sizeof(D3DKMT_MOVE_RECT);
-    SIZE_T sizeRects = NumDirtyRects*sizeof(RECT);
-    SIZE_T size = sizeof(DoPresentMemory) + sizeMoves + sizeRects;
-
-    DoPresentMemory* ctx = reinterpret_cast<DoPresentMemory*>
-                                (new (NonPagedPoolNx) BYTE[size]);
-
-    if (!ctx)
-    {
-        return STATUS_NO_MEMORY;
-    }
-
-    RtlZeroMemory(ctx,size);
-
-    ctx->DstAddr          = DstAddr;
-    ctx->DstBitPerPixel   = DstBitPerPixel;
-    ctx->DstStride        = pModeCur->DispInfo.Pitch;
-    ctx->SrcWidth         = pModeCur->SrcModeWidth;
-    ctx->SrcHeight        = pModeCur->SrcModeHeight;
-    ctx->SrcAddr          = NULL;
-    ctx->SrcPitch         = SrcPitch;
-    ctx->Rotation         = Rotation;
-    ctx->NumMoves         = NumMoves;
-    ctx->Moves            = Moves;
-    ctx->NumDirtyRects    = NumDirtyRects;
-    ctx->DirtyRect        = DirtyRect;
-    ctx->Mdl              = NULL;
-    ctx->DisplaySource    = this;
-
-    // Alternate between synch and asynch execution, for demonstrating 
-    // that a real hardware implementation can do either
-
-    {
-        // Map Source into kernel space, as Blt will be executed by system worker thread
-        UINT sizeToMap = SrcBytesPerPixel * ctx->SrcWidth * ctx->SrcHeight;
-
-        PMDL mdl = IoAllocateMdl((PVOID)SrcAddr, sizeToMap,  FALSE, FALSE, NULL);
-        if(!mdl)
-        {
-            return STATUS_INSUFFICIENT_RESOURCES;
-        }
-
-        KPROCESSOR_MODE AccessMode = static_cast<KPROCESSOR_MODE>(( SrcAddr <=
-                        (BYTE* const) MM_USER_PROBE_ADDRESS)?UserMode:KernelMode);
-        __try
-        {
-            // Probe and lock the pages of this buffer in physical memory.
-            // We need only IoReadAccess.
-            MmProbeAndLockPages(mdl, AccessMode, IoReadAccess);
-        }
-        #pragma prefast(suppress: __WARNING_EXCEPTIONEXECUTEHANDLER, "try/except is only able to protect against user-mode errors and these are the only errors we try to catch here");
-        __except(EXCEPTION_EXECUTE_HANDLER)
-        {
-            Status = GetExceptionCode();
-            IoFreeMdl(mdl);
-            return Status;
-        }
-
-        // Map the physical pages described by the MDL into system space.
-        // Note: double mapping the buffer this way causes lot of system
-        // overhead for large size buffers.
-        ctx->SrcAddr = reinterpret_cast<BYTE*>
-            (MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority | MdlMappingNoExecute));
-
-        if(!ctx->SrcAddr) {
-            Status = STATUS_INSUFFICIENT_RESOURCES;
-            MmUnlockPages(mdl);
-            IoFreeMdl(mdl);
-            return Status;
-        }
-
-        // Save Mdl to unmap and unlock the pages in worker thread
-        ctx->Mdl = mdl;
-    }
-
-    BYTE* rects = reinterpret_cast<BYTE*>(ctx+1);
-
-    // copy moves and update pointer
-    if (Moves)
-    {
-        memcpy(rects,Moves,sizeMoves);
-        ctx->Moves = reinterpret_cast<D3DKMT_MOVE_RECT*>(rects);
-        rects += sizeMoves;
-    }
-
-    // copy dirty rects and update pointer
-    if (DirtyRect)
-    {
-        memcpy(rects,DirtyRect,sizeRects);
-        ctx->DirtyRect = reinterpret_cast<RECT*>(rects);
-    }
 
     // Set up destination blt info
     BLT_INFO DstBltInfo;
@@ -2773,14 +2716,6 @@ VgaDevice::ExecutePresentDisplayOnly(
         1, // NumRects
         pDirtyRect);
     } 
-
-    // Unmap unmap and unlock the pages.
-    if (ctx->Mdl)
-    {
-        MmUnlockPages(ctx->Mdl);
-        IoFreeMdl(ctx->Mdl);
-    }
-    delete [] reinterpret_cast<BYTE*>(ctx);
 
     return STATUS_SUCCESS;
 }
@@ -2915,6 +2850,7 @@ QxlDevice::QxlDevice(_In_ QxlDod* pQxlDod)
     m_FreeOutputs = 0;
     m_Pending = 0;
     m_PresentThread = NULL;
+    RtlZeroMemory(&DebugInfo, sizeof(DebugInfo));
 }
 
 QxlDevice::~QxlDevice(void)
@@ -3132,18 +3068,20 @@ NTSTATUS QxlDevice::GetCurrentMode(ULONG* pMode)
 
 NTSTATUS QxlDevice::SetPowerState(DEVICE_POWER_STATE DevicePowerState, DXGK_DISPLAY_INFORMATION* pDispInfo)
 {
+    NTSTATUS Status = STATUS_SUCCESS;
     PAGED_CODE();
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE,
+        ("---> %s(%s)\n", __FUNCTION__, DbgDevicePowerString(DevicePowerState)));
     switch (DevicePowerState)
     {
-        case PowerDeviceUnspecified: 
-        case PowerDeviceD0: QxlInit(pDispInfo); break;
+        case PowerDeviceUnspecified: Status = STATUS_INVALID_PARAMETER; break;
+        case PowerDeviceD0: Status = QxlInit(pDispInfo); break;
         case PowerDeviceD1:
         case PowerDeviceD2: 
         case PowerDeviceD3: QxlClose(); break;
     }
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
-    return STATUS_SUCCESS;
+    return Status;
 }
 
 NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION* pDispInfo)
@@ -3406,8 +3344,11 @@ void QxlDevice::DestroyMemSlots(void)
 {
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
-    delete [] reinterpret_cast<BYTE*>(m_MemSlots);
-    m_MemSlots = NULL;
+    if (m_MemSlots)
+    {
+        delete[] reinterpret_cast<BYTE*>(m_MemSlots);
+        m_MemSlots = NULL;
+    }
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
@@ -3621,188 +3562,49 @@ void QxlDevice::ResetDevice(void)
 }
 
 NTSTATUS
-QxlDevice::ExecutePresentDisplayOnly(
-    _In_ BYTE*             DstAddr,
-    _In_ UINT              DstBitPerPixel,
-    _In_ BYTE*             SrcAddr,
-    _In_ UINT              SrcBytesPerPixel,
-    _In_ LONG              SrcPitch,
-    _In_ ULONG             NumMoves,
-    _In_ D3DKMT_MOVE_RECT* Moves,
-    _In_ ULONG             NumDirtyRects,
-    _In_ RECT*             DirtyRect,
-    _In_ D3DKMDT_VIDPN_PRESENT_PATH_ROTATION Rotation,
-    _In_ const CURRENT_BDD_MODE* pModeCur)
+QxlDevice::ExecutePresentDisplayOnly(DoPresentMemory * ctx)
 {
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
 
-    NTSTATUS Status = STATUS_SUCCESS;
+    UINT drawablesListSize = (ctx->NumMoves + ctx->NumDirtyRects + 1) * sizeof(QXLDrawable*);
+    QXLDrawable** drawables = reinterpret_cast<QXLDrawable**>(new (NonPagedPoolNx)BYTE[drawablesListSize]);
+    UINT d = 0;
 
-    SIZE_T sizeMoves = NumMoves*sizeof(D3DKMT_MOVE_RECT);
-    SIZE_T sizeRects = NumDirtyRects*sizeof(RECT);
-    SIZE_T size = sizeof(DoPresentMemory) + sizeMoves + sizeRects;
-
-    DoPresentMemory* ctx = reinterpret_cast<DoPresentMemory*>
-                                (new (NonPagedPoolNx) BYTE[size]);
-
-    if (!ctx)
+    if (drawables == NULL)
     {
-        return STATUS_NO_MEMORY;
+        return STATUS_INSUFFICIENT_RESOURCES;
     }
 
-    RtlZeroMemory(ctx,size);
-
-    ctx->DstAddr          = DstAddr;
-    ctx->DstBitPerPixel   = DstBitPerPixel;
-    ctx->DstStride        = pModeCur->DispInfo.Pitch;
-    ctx->SrcWidth         = pModeCur->SrcModeWidth;
-    ctx->SrcHeight        = pModeCur->SrcModeHeight;
-    ctx->SrcAddr          = NULL;
-    ctx->SrcPitch         = SrcPitch;
-    ctx->Rotation         = Rotation;
-    ctx->NumMoves         = NumMoves;
-    ctx->Moves            = Moves;
-    ctx->NumDirtyRects    = NumDirtyRects;
-    ctx->DirtyRect        = DirtyRect;
-    ctx->Mdl              = NULL;
-    ctx->DisplaySource    = this;
-
-    // Source bitmap is in user mode, must be locked under __try/__except
-    // and mapped to kernel space before use.
-    {
-        LONG maxHeight = GetMaxSourceMappingHeight(ctx->Moves, ctx->NumMoves, ctx->DirtyRect, ctx->NumDirtyRects);
-        UINT sizeToMap = ctx->SrcPitch * maxHeight;
-
-        PMDL mdl = IoAllocateMdl((PVOID)SrcAddr, sizeToMap,  FALSE, FALSE, NULL);
-        if(!mdl)
-        {
-            return STATUS_INSUFFICIENT_RESOURCES;
-        }
-
-        KPROCESSOR_MODE AccessMode = static_cast<KPROCESSOR_MODE>(( SrcAddr <=
-                        (BYTE* const) MM_USER_PROBE_ADDRESS)?UserMode:KernelMode);
-        __try
-        {
-            // Probe and lock the pages of this buffer in physical memory.
-            // We need only IoReadAccess.
-            MmProbeAndLockPages(mdl, AccessMode, IoReadAccess);
-        }
-        #pragma prefast(suppress: __WARNING_EXCEPTIONEXECUTEHANDLER, "try/except is only able to protect against user-mode errors and these are the only errors we try to catch here");
-        __except(EXCEPTION_EXECUTE_HANDLER)
-        {
-            Status = GetExceptionCode();
-            IoFreeMdl(mdl);
-            return Status;
-        }
-
-        // Map the physical pages described by the MDL into system space.
-        // Note: double mapping the buffer this way causes lot of system
-        // overhead for large size buffers.
-        ctx->SrcAddr = reinterpret_cast<BYTE*>
-            (MmGetSystemAddressForMdlSafe(mdl, NormalPagePriority | MdlMappingNoExecute));
-
-        if(!ctx->SrcAddr) {
-            Status = STATUS_INSUFFICIENT_RESOURCES;
-            MmUnlockPages(mdl);
-            IoFreeMdl(mdl);
-            return Status;
-        }
-
-        // Save Mdl to unmap and unlock the pages in worker thread
-        ctx->Mdl = mdl;
-    }
-
-    BYTE* rects = reinterpret_cast<BYTE*>(ctx+1);
-
-    // copy moves and update pointer
-    if (Moves)
-    {
-        memcpy(rects,Moves,sizeMoves);
-        ctx->Moves = reinterpret_cast<D3DKMT_MOVE_RECT*>(rects);
-        rects += sizeMoves;
-    }
-
-    // copy dirty rects and update pointer
-    if (DirtyRect)
-    {
-        memcpy(rects,DirtyRect,sizeRects);
-        ctx->DirtyRect = reinterpret_cast<RECT*>(rects);
-    }
-
-    // Set up destination blt info
-    BLT_INFO DstBltInfo;
-    DstBltInfo.pBits = ctx->DstAddr;
-    DstBltInfo.Pitch = ctx->DstStride;
-    DstBltInfo.BitsPerPel = ctx->DstBitPerPixel;
-    DstBltInfo.Offset.x = 0;
-    DstBltInfo.Offset.y = 0;
-    DstBltInfo.Rotation = ctx->Rotation;
-    DstBltInfo.Width = ctx->SrcWidth;
-    DstBltInfo.Height = ctx->SrcHeight;
-
-    // Set up source blt info
-    BLT_INFO SrcBltInfo;
-    SrcBltInfo.pBits = ctx->SrcAddr;
-    SrcBltInfo.Pitch = ctx->SrcPitch;
-    SrcBltInfo.BitsPerPel = 32;
-    SrcBltInfo.Offset.x = 0;
-    SrcBltInfo.Offset.y = 0;
-    SrcBltInfo.Rotation = D3DKMDT_VPPR_IDENTITY;
-    if (ctx->Rotation == D3DKMDT_VPPR_ROTATE90 ||
-        ctx->Rotation == D3DKMDT_VPPR_ROTATE270)
-    {
-        SrcBltInfo.Width = DstBltInfo.Height;
-        SrcBltInfo.Height = DstBltInfo.Width;
-    }
-    else
-    {
-        SrcBltInfo.Width = DstBltInfo.Width;
-        SrcBltInfo.Height = DstBltInfo.Height;
-    }
-
-
+    LARGE_INTEGER li1, li2;
+    li1 = KeQueryPerformanceCounter(NULL);
     // Copy all the scroll rects from source image to video frame buffer.
     for (UINT i = 0; i < ctx->NumMoves; i++)
     {
         POINT*   pSourcePoint = &ctx->Moves[i].SourcePoint;
         RECT*    pDestRect = &ctx->Moves[i].DestRect;
 
-        DbgPrint(TRACE_LEVEL_INFORMATION, ("--- %d SourcePoint.x = %ld, SourcePoint.y = %ld, DestRect.bottom = %ld, DestRect.left = %ld, DestRect.right = %ld, DestRect.top = %ld\n", 
-            i , pSourcePoint->x, pSourcePoint->y, pDestRect->bottom, pDestRect->left, pDestRect->right, pDestRect->top));
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("--- %d SourcePoint.x = %ld, SourcePoint.y = %ld, DestRect.bottom = %ld, DestRect.left = %ld, DestRect.right = %ld, DestRect.top = %ld\n",
+            i, pSourcePoint->x, pSourcePoint->y, pDestRect->bottom, pDestRect->left, pDestRect->right, pDestRect->top));
 
-        BltBits(&DstBltInfo,
-        &SrcBltInfo,
-        1,
-        pDestRect,
-        pSourcePoint);
+        drawables[d] = DrawableCopy(*pDestRect, *pSourcePoint);
+        if (drawables[d]) ++d;
     }
 
     // Copy all the dirty rects from source image to video frame buffer.
     for (UINT i = 0; i < ctx->NumDirtyRects; i++)
     {
-        RECT*    pDirtyRect = &ctx->DirtyRect[i];
-        POINT   sourcePoint;
-        sourcePoint.x = pDirtyRect->left;
-        sourcePoint.y = pDirtyRect->top;
-
-        DbgPrint(TRACE_LEVEL_INFORMATION, ("--- %d pDirtyRect->bottom = %ld, pDirtyRect->left = %ld, pDirtyRect->right = %ld, pDirtyRect->top = %ld\n",
-            i, pDirtyRect->bottom, pDirtyRect->left, pDirtyRect->right, pDirtyRect->top));
-
-        BltBits(&DstBltInfo,
-        &SrcBltInfo,
-        1,
-        pDirtyRect,
-        &sourcePoint);
+        drawables[d] = DrawableFromRect(ctx, &ctx->DirtyRect[i]);
+        if (drawables[d]) ++d;
     }
 
-    // Unmap unmap and unlock the pages.
-    if (ctx->Mdl)
-    {
-        MmUnlockPages(ctx->Mdl);
-        IoFreeMdl(ctx->Mdl);
-    }
-    delete [] reinterpret_cast<BYTE*>(ctx);
+    drawables[d] = NULL;
+    li2 = KeQueryPerformanceCounter(NULL);
+    DebugInfo.callTime += li2.QuadPart - li1.QuadPart;
+    DebugInfo.moves += ctx->NumMoves;
+    DebugInfo.dirties += ctx->NumDirtyRects;
+
+    PostToWorkerThread(drawables);
 
     return STATUS_SUCCESS;
 }
@@ -4217,105 +4019,24 @@ VOID QxlDevice::SetImageId(InternalImage *internal,
     }
 }
 
-VOID QxlDevice::BltBits (
-    BLT_INFO* pDst,
-    CONST BLT_INFO* pSrc,
-    UINT  NumRects,
-    _In_reads_(NumRects) CONST RECT *pRects,
-    POINT*   pSourcePoint)
+QXLDrawable *QxlDevice::DrawableCopy(const RECT& rect, const POINT& sourcePoint)
 {
     PAGED_CODE();
     QXLDrawable *drawable;
-    Resource *image_res;
-    InternalImage *internal;
-    size_t alloc_size;
-    QXLDataChunk *chunk;
-    UINT32 line_size;
-    LONG width;
-    LONG height;
 
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s device %d\n", __FUNCTION__,m_Id));
-    UNREFERENCED_PARAMETER(NumRects);
-    UNREFERENCED_PARAMETER(pDst);
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s device %d\n", __FUNCTION__, m_Id));
 
-    if (!(drawable = Drawable(QXL_DRAW_COPY, pRects, NULL, 0))) {
+    if (!(drawable = Drawable(QXL_COPY_BITS, &rect, NULL, 0))) {
         DbgPrint(TRACE_LEVEL_ERROR, ("Cannot get Drawable.\n"));
-        return;
+        return NULL;
     }
 
-    CONST RECT* pRect = &pRects[0];
-    drawable->u.copy.scale_mode = SPICE_IMAGE_SCALE_MODE_NEAREST;
-    drawable->u.copy.mask.bitmap = 0;
-    drawable->u.copy.rop_descriptor = SPICE_ROPD_OP_PUT;
-
-    drawable->surfaces_dest[0] = 0;
-    CopyRect(&drawable->surfaces_rects[0], pRect);
-
-    drawable->self_bitmap = TRUE;
-    CopyRect(&drawable->self_bitmap_area, pRect);
-
-    height = pRect->bottom - pRect->top;
-    width = pRect->right - pRect->left;
-    line_size = width * 4;
-
-    drawable->u.copy.src_area.bottom = height;
-    drawable->u.copy.src_area.left = 0;
-    drawable->u.copy.src_area.top = 0;
-    drawable->u.copy.src_area.right = width;
-
-    alloc_size = BITMAP_ALLOC_BASE + BITS_BUF_MAX - BITS_BUF_MAX % line_size;
-    alloc_size = MIN(BITMAP_ALLOC_BASE + height * line_size, alloc_size);
-    image_res = (Resource*)AllocMem(MSPACE_TYPE_VRAM, alloc_size, TRUE);
-
-    image_res->refs = 1;
-    image_res->free = FreeBitmapImageEx;
-    image_res->ptr = this;
-
-    internal = (InternalImage *)image_res->res;
-    SetImageId(internal, FALSE, width, height, SPICE_BITMAP_FMT_32BIT, 0);
-    internal->image.descriptor.flags = 0;
-    internal->image.descriptor.type = SPICE_IMAGE_TYPE_BITMAP;
-    chunk = (QXLDataChunk *)(&internal->image.bitmap + 1);
-    chunk->data_size = 0;
-    chunk->prev_chunk = 0;
-    chunk->next_chunk = 0;
-    internal->image.bitmap.data = PA(chunk, m_SurfaceMemSlot);
-    internal->image.bitmap.flags = 0;
-    internal->image.descriptor.width = internal->image.bitmap.x = width;
-    internal->image.descriptor.height = internal->image.bitmap.y = height;
-    internal->image.bitmap.format = SPICE_BITMAP_FMT_RGBA;
-    internal->image.bitmap.stride = line_size;
-
-    UINT8* src = (UINT8*)pSrc->pBits+
-                                (pSourcePoint->y) * pSrc->Pitch +
-                                (pSourcePoint->x * 4);
-    UINT8* src_end = src - pSrc->Pitch;
-    src += pSrc->Pitch * (height - 1);
-    UINT8* dest = chunk->data;
-    UINT8* dest_end = (UINT8 *)image_res + alloc_size;
-    alloc_size = height * line_size;
-
-    for (; src != src_end; src -= pSrc->Pitch, alloc_size -= line_size) {
-        PutBytesAlign(&chunk, &dest, &dest_end, src,
-                      line_size, alloc_size, line_size);
-    }
-
-    internal->image.bitmap.palette = 0;
-
-    drawable->u.copy.src_bitmap = PA(&internal->image, m_SurfaceMemSlot);
-
-    CopyRect(&drawable->surfaces_rects[1], pRect);
-    DrawableAddRes(drawable, image_res);
-    RELEASE_RES(image_res);
-
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("%s drawable= %p type = %d, effect = %d Dest right(%d) left(%d) top(%d) bottom(%d) src_bitmap= %p.\n", __FUNCTION__,
-         drawable, drawable->type, drawable->effect, drawable->surfaces_rects[0].right, drawable->surfaces_rects[0].left,
-         drawable->surfaces_rects[0].top, drawable->surfaces_rects[0].bottom,
-         drawable->u.copy.src_bitmap));
-
-    PushDrawable(drawable);
+    drawable->u.copy_bits.src_pos.x = sourcePoint.x;
+    drawable->u.copy_bits.src_pos.y = sourcePoint.y;
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
+
+    return drawable;
 }
 
 VOID QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
@@ -4483,6 +4204,8 @@ NTSTATUS QxlDevice::SetPointerPosition(_In_ CONST DXGKARG_SETPOINTERPOSITION* pS
                                  pSetPointerPosition->VidPnSourceId,
                                  pSetPointerPosition->X,
                                  pSetPointerPosition->Y));
+    LARGE_INTEGER li1, li2;
+    li1 = KeQueryPerformanceCounter(NULL);
     QXLCursorCmd *cursor_cmd = CursorCmd();
     if (pSetPointerPosition->X < 0 || !pSetPointerPosition->Flags.Visible) {
         cursor_cmd->type = QXL_CURSOR_HIDE;
@@ -4492,6 +4215,8 @@ NTSTATUS QxlDevice::SetPointerPosition(_In_ CONST DXGKARG_SETPOINTERPOSITION* pS
         cursor_cmd->u.position.y = (INT16)pSetPointerPosition->Y;
     }
     PushCursorCmd(cursor_cmd);
+    li2 = KeQueryPerformanceCounter(NULL);
+    DebugInfo.cursorTime += li2.QuadPart - li1.QuadPart;
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return STATUS_SUCCESS;
 }
@@ -4842,8 +4567,13 @@ void QxlDevice::PresentThreadRoutine()
     int wait;
     int notify;
     QXLDrawable** drawables;
+    ULONG nCount = 0;
+    LONGLONG prevThreadTime = 0, prevCallTime = 0, prevCursorTime = 0;
+    LARGE_INTEGER freq = { 0 };
 
     DbgPrint(TRACE_LEVEL_INFORMATION, ("--->%s\n", __FUNCTION__));
+    KeQueryPerformanceCounter(&freq);
+    DbgPrint(TRACE_LEVEL_WARNING, ("Performance frequency %I64d\n", freq.QuadPart));
 
     while (1)
     {
@@ -4851,6 +4581,7 @@ void QxlDevice::PresentThreadRoutine()
         // No need for a mutex, only one consumer thread
         SPICE_RING_CONS_WAIT(m_PresentRing, wait);
         while (wait) {
+            nCount = 0;
             WaitForObject(&m_PresentEvent, NULL);
             SPICE_RING_CONS_WAIT(m_PresentRing, wait);
         }
@@ -4861,14 +4592,41 @@ void QxlDevice::PresentThreadRoutine()
         }
 
         if (drawables) {
+            LARGE_INTEGER li1, li2;
+            nCount++;
+            if (nCount > DebugInfo.maxQueueLevel) DebugInfo.maxQueueLevel = nCount;
+            li1 = KeQueryPerformanceCounter(NULL);
             for (UINT i = 0; drawables[i]; ++i)
                 PushDrawable(drawables[i]);
+            li2 = KeQueryPerformanceCounter(NULL);
+            DebugInfo.threadTime += li2.QuadPart - li1.QuadPart;
+            if ((li2.QuadPart - DebugInfo.lastTimeStamp.QuadPart) > 100000000)
+            {
+                LONGLONG callDiff, threadDiff, cursorDiff;
+                callDiff = DebugInfo.callTime - prevCallTime;
+                prevCallTime += callDiff;
+                threadDiff = DebugInfo.threadTime - prevThreadTime;
+                prevThreadTime += threadDiff;
+                cursorDiff = DebugInfo.cursorTime - prevCursorTime;
+                prevCursorTime += cursorDiff;
+                DebugInfo.lastTimeStamp = li2;
+                DbgPrint(TRACE_LEVEL_WARNING, ("C %I64d, T/C %I64d ppm, cursor %I64d, mov %I64d, dir %I64d, q %d\n",
+                    callDiff,
+                    callDiff ? ((threadDiff * 1000000) / callDiff) : 0,
+                    cursorDiff,
+                    DebugInfo.moves,
+                    DebugInfo.dirties,
+                    DebugInfo.maxQueueLevel
+                    ));
+                DebugInfo.maxQueueLevel = 0;
+            }
             delete[] reinterpret_cast<BYTE*>(drawables);
         }
         else {
             DbgPrint(TRACE_LEVEL_INFORMATION, ("%s is being terminated\n", __FUNCTION__));
             break;
         }
+
     }
 }
 
