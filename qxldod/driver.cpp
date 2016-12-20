@@ -165,7 +165,7 @@ DodStopDevice(
 {
     PAGED_CODE();
     QXL_ASSERT_CHK(pDeviceContext != NULL);
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("<---> %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("<---> %s\n", __FUNCTION__));
 
     QxlDod* pQxl = reinterpret_cast<QxlDod*>(pDeviceContext);
     return pQxl->StopDevice();
@@ -680,14 +680,17 @@ void DebugPrintFunc(const char *format, ...)
 
 void DebugPrint(int level, const char *fmt, ...)
 {
-    static const ULONG xlate[] = { 0, 0, 1, 2, 3 };
+    static const ULONG xlate[] = { 0, 0, 0, 3, 3 };
     if (level <= 0 || level > 5)
         return;
 
-    va_list list;
-    va_start(list, fmt);
-    vDbgPrintEx(DPFLTR_IHVVIDEO_ID, xlate[level - 1], fmt, list);
-    va_end(list);
+    if (xlate[level - 1] == 0)
+    {
+        va_list list;
+        va_start(list, fmt);
+        vDbgPrintEx(DPFLTR_IHVVIDEO_ID, 0, fmt, list);
+        va_end(list);
+    }
 }
 
 #endif
