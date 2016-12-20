@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Win10Debug_NoSign|Win32">
@@ -116,6 +116,8 @@
     <OutDir>$(SolutionDir)\build\$(Platform)\$(ConfigurationName)\</OutDir>
     <IntDir>$(Platform)\$(Configuration)\</IntDir>
     <TargetName>qxldod</TargetName>
+    <Inf2CatUseLocalTime>true</Inf2CatUseLocalTime>
+    <EnableInf2cat>false</EnableInf2cat>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Win10Debug_NoSign|x64'">
     <OutDir>$(SolutionDir)\build\$(Platform)\$(ConfigurationName)\</OutDir>
@@ -211,10 +213,11 @@
       <PreprocessorDefinitions>DBG;_WIN64;_AMD64_;AMD64;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <PostBuildEvent>
-      <Command>Inf2Cat /driver:$(OutDir) /os:8_X64,Server8_X64,Server6_3_X64,6_3_X64</Command>
+      <Command>
+      </Command>
     </PostBuildEvent>
     <Inf>
-      <EnableVerbose>true</EnableVerbose>
+      <EnableVerbose>false</EnableVerbose>
       <KmdfVersionNumber>
       </KmdfVersionNumber>
       <UmdfVersionNumber>
