@@ -3641,10 +3641,10 @@ BOOL QxlDevice::CreateEvents()
     KeInitializeEvent(&m_PresentThreadReadyEvent,
                       SynchronizationEvent,
                       FALSE);
-    KeInitializeMutex(&m_MemLock,1);
-    KeInitializeMutex(&m_CmdLock,1);
-    KeInitializeMutex(&m_IoLock,1);
-    KeInitializeMutex(&m_CrsLock,1);
+    KeInitializeMutex(&m_MemLock, 0);
+    KeInitializeMutex(&m_CmdLock, 0);
+    KeInitializeMutex(&m_IoLock, 0);
+    KeInitializeMutex(&m_CrsLock, 0);
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return TRUE;
