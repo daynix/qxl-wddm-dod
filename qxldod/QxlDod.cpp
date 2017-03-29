@@ -3545,11 +3545,10 @@ BOOL QxlDevice::InitMemSlots(void)
 {
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
-    m_NumMemSlots = m_RomHdr->slots_end;
     m_SlotGenBits = m_RomHdr->slot_gen_bits;
     m_SlotIdBits = m_RomHdr->slot_id_bits;
     m_VaSlotMask = (~(uint64_t)0) >> (m_SlotIdBits + m_SlotGenBits);
-    size_t size = m_NumMemSlots * sizeof(MemSlot);
+    size_t size = m_RomHdr->slots_end * sizeof(MemSlot);
     m_MemSlots = reinterpret_cast<MemSlot*>
                                 (new (PagedPool) BYTE[size]);
     if (m_MemSlots)

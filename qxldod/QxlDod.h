@@ -647,7 +647,6 @@ private:
     ULONG m_RomSize;
 
     MemSlot *m_MemSlots;
-    UINT8 m_NumMemSlots;
     UINT8 m_MainMemSlot;
     UINT8 m_SurfaceMemSlot;
     UINT8 m_SlotIdBits;
