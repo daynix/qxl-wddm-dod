@@ -19,6 +19,7 @@
                           (QXL_INTERRUPT_CURSOR) | \
                           (QXL_INTERRUPT_IO_CMD))
 
+#define VSYNC_PERIOD    200 // ms, use 0 for auto
 #define VSYNC_RATE      75
 
 BOOLEAN g_bSupportVSync;
@@ -5006,8 +5007,9 @@ VOID QxlDod::EnableVsync(BOOLEAN bEnable)
         else
         {
             LARGE_INTEGER li;
-            LONG period = 1000 / VSYNC_RATE;
-            DbgPrint(TRACE_LEVEL_WARNING, ("Enabled VSync(fired %d)\n", m_VsyncFiredCounter));
+            LONG period = VSYNC_PERIOD;
+            if (!period) period = 1000 / VSYNC_RATE;
+            DbgPrint(TRACE_LEVEL_WARNING, ("Enabled VSync %d ms(fired %d)\n", period, m_VsyncFiredCounter));
             li.QuadPart = -10000000 / VSYNC_RATE;
             KeSetTimerEx(&m_VsyncTimer, li, period, &m_VsyncTimerDpc);
         }
