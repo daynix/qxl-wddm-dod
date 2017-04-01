@@ -21,6 +21,38 @@
 
 int nDebugLevel = TRACE_LEVEL_ERROR;
 
+// registry-based configuration is intended to be manual only
+// for VSync suppression during support and troubleshooting
+// and not expected to be made default
+static void QueryVSyncSetting(BOOLEAN& b, const UNICODE_STRING *path)
+{
+    PAGED_CODE();
+    WCHAR buffer[MAX_PATH];
+    ULONG val = b;
+    RTL_QUERY_REGISTRY_TABLE QueryTable[3] = {};
+    if (path->Length >= sizeof(buffer))
+        return;
+
+    QueryTable[0].Flags = RTL_QUERY_REGISTRY_SUBKEY;
+    QueryTable[0].Name = L"Parameters";
+    QueryTable[1].Flags = RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_TYPECHECK | RTL_QUERY_REGISTRY_REQUIRED;
+    QueryTable[1].Name = L"EnableVSync";
+    QueryTable[1].DefaultType = REG_DWORD << 24;
+    QueryTable[1].EntryContext = &val;
+
+    RtlCopyMemory(buffer, path->Buffer, path->Length);
+    buffer[path->Length/2] = 0;
+    NTSTATUS status = RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE, buffer, QueryTable, NULL, NULL);
+    if (NT_SUCCESS(status))
+    {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s: val = %d\n", __FUNCTION__, val));
+        b = !!val;
+    }
+    else
+    {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s: status = %X\n", __FUNCTION__, status));
+    }
+}
 
 extern "C"
 NTSTATUS
@@ -52,6 +84,9 @@ DriverEntry(
         // related to enabled VSync control in Win10RS1
 
         //g_bSupportVSync = TRUE;
+
+        // for support/troubleshooting be able to disable VSync on specific machine
+        QueryVSyncSetting(g_bSupportVSync, pRegistryPath);
     }
     DbgPrint(TRACE_LEVEL_WARNING, ("VSync support %sabled for %d.%d.%d\n",
         g_bSupportVSync ? "en" : "dis",
