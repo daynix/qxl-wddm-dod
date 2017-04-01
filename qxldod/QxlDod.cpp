@@ -1743,10 +1743,10 @@ NTSTATUS QxlDod::UpdateActiveVidPnPresentPath(_In_ CONST DXGKARG_UPDATEACTIVEVID
 QXL_NON_PAGED
 VOID QxlDod::DpcRoutine(VOID)
 {
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("---> %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
     m_pHWDevice->DpcRoutine(&m_DxgkInterface);
     m_DxgkInterface.DxgkCbNotifyDpc((HANDLE)m_DxgkInterface.DeviceHandle);
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("<--- %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
 QXL_NON_PAGED
@@ -4142,7 +4142,7 @@ BOOL QxlDevice::SetClip(const RECT *clip, QXLDrawable *drawable)
 
     if (clip == NULL) {
         drawable->clip.type = SPICE_CLIP_TYPE_NONE;
-        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s QXL_CLIP_TYPE_NONE\n", __FUNCTION__));
+        // currently we always with NULL clip parameter
         return TRUE;
     }
 
@@ -4854,7 +4854,7 @@ QXL_NON_PAGED
 VOID QxlDevice::DpcRoutine(PVOID)
 {
     LONG intStatus = InterlockedExchange(&m_Pending, 0);
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("---> %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
 
     if (intStatus & QXL_INTERRUPT_DISPLAY) {
         DbgPrint(TRACE_LEVEL_INFORMATION, ("---> %s m_DisplayEvent\n", __FUNCTION__));
@@ -4869,7 +4869,7 @@ VOID QxlDevice::DpcRoutine(PVOID)
         KeSetEvent (&m_IoCmdEvent, IO_NO_INCREMENT, FALSE);
     }
 
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("<--- %s\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
 VOID QxlDevice::UpdateArea(CONST RECT* area, UINT32 surface_id)
