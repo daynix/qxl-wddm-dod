@@ -3062,6 +3062,7 @@ QxlDevice::QxlDevice(_In_ QxlDod* pQxlDod)
     m_CustomMode = 0;
     m_FreeOutputs = 0;
     m_Pending = 0;
+    m_PresentThread = NULL;
 }
 
 QxlDevice::~QxlDevice(void)
@@ -3441,6 +3442,25 @@ NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION*
     return QxlInit(pDispInfo);
 }
 
+NTSTATUS QxlDevice::StartPresentThread()
+{
+    PAGED_CODE();
+    OBJECT_ATTRIBUTES ObjectAttributes;
+    NTSTATUS Status;
+
+    InitializeObjectAttributes(&ObjectAttributes, NULL, OBJ_KERNEL_HANDLE, NULL, NULL);
+    Status = PsCreateSystemThread(
+        &m_PresentThread,
+        THREAD_ALL_ACCESS,
+        &ObjectAttributes,
+        NULL,
+        NULL,
+        PresentThreadRoutineWrapper,
+        this);
+
+    return Status;
+}
+
 NTSTATUS QxlDevice::QxlInit(DXGK_DISPLAY_INFORMATION* pDispInfo)
 {
     PAGED_CODE();
@@ -3467,12 +3487,17 @@ NTSTATUS QxlDevice::QxlInit(DXGK_DISPLAY_INFORMATION* pDispInfo)
     InitDeviceMemoryResources();
     InitMonitorConfig();
     Status = AcquireDisplayInfo(*(pDispInfo));
+    if (NT_SUCCESS(Status))
+    {
+        Status = StartPresentThread();
+    }
     return Status;
 }
 
 void QxlDevice::QxlClose()
 {
     PAGED_CODE();
+    StopPresentThread();
     DestroyMemSlots();
 }
 
@@ -3609,6 +3634,12 @@ BOOL QxlDevice::CreateEvents()
     KeInitializeEvent(&m_IoCmdEvent,
                       SynchronizationEvent,
                       FALSE);
+    KeInitializeEvent(&m_PresentEvent,
+                      SynchronizationEvent,
+                      FALSE);
+    KeInitializeEvent(&m_PresentThreadReadyEvent,
+                      SynchronizationEvent,
+                      FALSE);
     KeInitializeMutex(&m_MemLock,1);
     KeInitializeMutex(&m_CmdLock,1);
     KeInitializeMutex(&m_IoLock,1);
@@ -3625,6 +3656,7 @@ BOOL QxlDevice::CreateRings()
     m_CommandRing = &(m_RamHdr->cmd_ring);
     m_CursorRing = &(m_RamHdr->cursor_ring);
     m_ReleaseRing = &(m_RamHdr->release_ring);
+    SPICE_RING_INIT(m_PresentRing);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return TRUE;
 }
@@ -4907,6 +4939,7 @@ UINT SpiceFromPixelFormat(D3DDDIFORMAT Format)
 
 NTSTATUS HwDeviceInterface::AcquireDisplayInfo(DXGK_DISPLAY_INFORMATION& DispInfo)
 {
+    PAGED_CODE();
     NTSTATUS Status = STATUS_SUCCESS;
     if (GetId() == 0)
     {
@@ -4995,4 +5028,79 @@ QXL_NON_PAGED VOID QxlDod::VsyncTimerProcGate(_In_ _KDPC *dpc, _In_ PVOID contex
 {
     QxlDod* pQxl = reinterpret_cast<QxlDod*>(context);
     pQxl->VsyncTimerProc();
+}
+
+void QxlDevice::StopPresentThread()
+{
+    PAGED_CODE();
+    PVOID pDispatcherObject;
+    if (m_PresentThread)
+    {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("---> %s\n", __FUNCTION__));
+        PostToWorkerThread(NULL);
+        NTSTATUS Status = ObReferenceObjectByHandle(
+            m_PresentThread, 0, NULL, KernelMode, &pDispatcherObject, NULL);
+        if (NT_SUCCESS(Status))
+        {
+            WaitForObject(pDispatcherObject, NULL);
+            ObDereferenceObject(pDispatcherObject);
+        }
+        ZwClose(m_PresentThread);
+        m_PresentThread = NULL;
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("<--- %s\n", __FUNCTION__));
+    }
+}
+
+void QxlDevice::PresentThreadRoutine()
+{
+    PAGED_CODE();
+    int wait;
+    int notify;
+    QXLDrawable** drawables;
+
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("--->%s\n", __FUNCTION__));
+
+    while (1)
+    {
+        // Pop a drawables list from the ring
+        // No need for a mutex, only one consumer thread
+        SPICE_RING_CONS_WAIT(m_PresentRing, wait);
+        while (wait) {
+            WaitForObject(&m_PresentEvent, NULL);
+            SPICE_RING_CONS_WAIT(m_PresentRing, wait);
+        }
+        drawables = *SPICE_RING_CONS_ITEM(m_PresentRing);
+        SPICE_RING_POP(m_PresentRing, notify);
+        if (notify) {
+            KeSetEvent(&m_PresentThreadReadyEvent, 0, FALSE);
+        }
+
+        if (drawables) {
+            for (UINT i = 0; drawables[i]; ++i)
+                PushDrawable(drawables[i]);
+            delete[] drawables;
+        }
+        else {
+            DbgPrint(TRACE_LEVEL_WARNING, ("%s is being terminated\n", __FUNCTION__));
+            break;
+        }
+    }
+}
+
+void QxlDevice::PostToWorkerThread(QXLDrawable** drawables)
+{
+    PAGED_CODE();
+    // Push drawables into PresentRing and notify worker thread
+    int notify, wait;
+    SPICE_RING_PROD_WAIT(m_PresentRing, wait);
+    while (wait) {
+        WaitForObject(&m_PresentThreadReadyEvent, NULL);
+        SPICE_RING_PROD_WAIT(m_PresentRing, wait);
+    }
+    *SPICE_RING_PROD_ITEM(m_PresentRing) = drawables;
+    SPICE_RING_PUSH(m_PresentRing, notify);
+    if (notify) {
+        KeSetEvent(&m_PresentEvent, 0, FALSE);
+    }
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("<--- %s\n", __FUNCTION__));
 }

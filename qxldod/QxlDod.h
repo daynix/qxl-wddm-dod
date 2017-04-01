@@ -456,6 +456,10 @@ typedef struct DpcCbContext {
 #define MAX(x, y) (((x) >= (y)) ? (x) : (y))
 #define ALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
 
+#include "start-packed.h"
+SPICE_RING_DECLARE(QXLPresentOnlyRing, QXLDrawable**, 1024);
+#include "end-packed.h"
+
 class QxlDevice  :
     public HwDeviceInterface
 {
@@ -559,6 +563,13 @@ private:
     NTSTATUS UpdateChildStatus(BOOLEAN connect);
     NTSTATUS SetCustomDisplay(QXLEscapeSetCustomDisplay* custom_display);
     void SetMonitorConfig(QXLHead* monitor_config);
+    NTSTATUS StartPresentThread();
+    void StopPresentThread();
+    void PresentThreadRoutine();
+    static void PresentThreadRoutineWrapper(HANDLE dev) {
+        ((QxlDevice *)dev)->PresentThreadRoutine();
+    }
+    void PostToWorkerThread(QXLDrawable** drawables);
 
     static LONG GetMaxSourceMappingHeight(RECT* DirtyRects, ULONG NumDirtyRects);
 
@@ -594,6 +605,8 @@ private:
     KEVENT m_DisplayEvent;
     KEVENT m_CursorEvent;
     KEVENT m_IoCmdEvent;
+    KEVENT m_PresentEvent;
+    KEVENT m_PresentThreadReadyEvent;
 
     PUCHAR m_LogPort;
     PUCHAR m_LogBuf;
@@ -609,6 +622,9 @@ private:
 
     QXLMonitorsConfig* m_monitor_config;
     QXLPHYSICAL* m_monitor_config_pa;
+
+    QXLPresentOnlyRing m_PresentRing[1];
+    HANDLE m_PresentThread;
 };
 
 class QxlDod {
