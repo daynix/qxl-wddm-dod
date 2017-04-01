@@ -495,12 +495,12 @@ public:
     BOOLEAN IsBIOSCompatible() { return FALSE; }
 protected:
     NTSTATUS GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo);
-    VOID BltBits (BLT_INFO* pDst,
+    QXLDrawable *PrepareBltBits (BLT_INFO* pDst,
                     CONST BLT_INFO* pSrc,
                     UINT  NumRects,
                     _In_reads_(NumRects) CONST RECT *pRects,
                     POINT*   pSourcePoint);
-    void CopyBits(const RECT& rect, const POINT& sourcePoint);
+    QXLDrawable *PrepareCopyBits(const RECT& rect, const POINT& sourcePoint);
     QXLDrawable *Drawable(UINT8 type,
                     CONST RECT *area,
                     CONST RECT *clip,

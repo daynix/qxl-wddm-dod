@@ -3786,19 +3786,16 @@ QxlDevice::ExecutePresentDisplayOnly(
 
     NTSTATUS Status = STATUS_SUCCESS;
 
-    SIZE_T sizeMoves = NumMoves*sizeof(D3DKMT_MOVE_RECT);
-    SIZE_T sizeRects = NumDirtyRects*sizeof(RECT);
-    SIZE_T size = sizeof(DoPresentMemory) + sizeMoves + sizeRects;
+    QXLDrawable **pDrawables = new (NonPagedPoolNx) QXLDrawable *[NumDirtyRects + NumMoves + 1];
+    UINT nIndex = 0;
 
-    DoPresentMemory* ctx = reinterpret_cast<DoPresentMemory*>
-                                (new (NonPagedPoolNx) BYTE[size]);
-
-    if (!ctx)
+    if (!pDrawables)
     {
         return STATUS_NO_MEMORY;
     }
 
-    RtlZeroMemory(ctx,size);
+    DoPresentMemory ctx[1];
+    RtlZeroMemory(ctx, sizeof(ctx));
 
     ctx->DstAddr          = DstAddr;
     ctx->DstBitPerPixel   = DstBitPerPixel;
@@ -3824,6 +3821,7 @@ QxlDevice::ExecutePresentDisplayOnly(
         PMDL mdl = IoAllocateMdl((PVOID)SrcAddr, sizeToMap,  FALSE, FALSE, NULL);
         if(!mdl)
         {
+            delete[] pDrawables;
             return STATUS_INSUFFICIENT_RESOURCES;
         }
 
@@ -3840,6 +3838,7 @@ QxlDevice::ExecutePresentDisplayOnly(
         {
             Status = GetExceptionCode();
             IoFreeMdl(mdl);
+            delete[] pDrawables;
             return Status;
         }
 
@@ -3853,28 +3852,12 @@ QxlDevice::ExecutePresentDisplayOnly(
             Status = STATUS_INSUFFICIENT_RESOURCES;
             MmUnlockPages(mdl);
             IoFreeMdl(mdl);
+            delete[] pDrawables;
             return Status;
         }
 
         // Save Mdl to unmap and unlock the pages in worker thread
         ctx->Mdl = mdl;
-    }
-
-    BYTE* rects = reinterpret_cast<BYTE*>(ctx+1);
-
-    // copy moves and update pointer
-    if (Moves)
-    {
-        memcpy(rects,Moves,sizeMoves);
-        ctx->Moves = reinterpret_cast<D3DKMT_MOVE_RECT*>(rects);
-        rects += sizeMoves;
-    }
-
-    // copy dirty rects and update pointer
-    if (DirtyRect)
-    {
-        memcpy(rects,DirtyRect,sizeRects);
-        ctx->DirtyRect = reinterpret_cast<RECT*>(rects);
     }
 
     // Set up destination blt info
@@ -3918,7 +3901,9 @@ QxlDevice::ExecutePresentDisplayOnly(
         DbgPrint(TRACE_LEVEL_INFORMATION, ("--- %d SourcePoint.x = %ld, SourcePoint.y = %ld, DestRect.bottom = %ld, DestRect.left = %ld, DestRect.right = %ld, DestRect.top = %ld\n", 
             i , pSourcePoint->x, pSourcePoint->y, pDestRect->bottom, pDestRect->left, pDestRect->right, pDestRect->top));
 
-        CopyBits(*pDestRect, *pSourcePoint);
+        pDrawables[nIndex] = PrepareCopyBits(*pDestRect, *pSourcePoint);
+
+        if (pDrawables[nIndex]) nIndex++;
     }
 
     // Copy all the dirty rects from source image to video frame buffer.
@@ -3932,11 +3917,13 @@ QxlDevice::ExecutePresentDisplayOnly(
         DbgPrint(TRACE_LEVEL_INFORMATION, ("--- %d pDirtyRect->bottom = %ld, pDirtyRect->left = %ld, pDirtyRect->right = %ld, pDirtyRect->top = %ld\n",
             i, pDirtyRect->bottom, pDirtyRect->left, pDirtyRect->right, pDirtyRect->top));
 
-        BltBits(&DstBltInfo,
+        pDrawables[nIndex] = PrepareBltBits(&DstBltInfo,
         &SrcBltInfo,
         1,
         pDirtyRect,
         &sourcePoint);
+
+        if (pDrawables[nIndex]) nIndex++;
     }
 
     // Unmap unmap and unlock the pages.
@@ -3945,7 +3932,10 @@ QxlDevice::ExecutePresentDisplayOnly(
         MmUnlockPages(ctx->Mdl);
         IoFreeMdl(ctx->Mdl);
     }
-    delete [] reinterpret_cast<BYTE*>(ctx);
+
+    pDrawables[nIndex] = NULL;
+
+    PostToWorkerThread(pDrawables);
 
     return STATUS_SUCCESS;
 }
@@ -4360,7 +4350,7 @@ VOID QxlDevice::SetImageId(InternalImage *internal,
     }
 }
 
-void QxlDevice::CopyBits(const RECT& rect, const POINT& sourcePoint)
+QXLDrawable *QxlDevice::PrepareCopyBits(const RECT& rect, const POINT& sourcePoint)
 {
     PAGED_CODE();
     QXLDrawable *drawable;
@@ -4369,18 +4359,18 @@ void QxlDevice::CopyBits(const RECT& rect, const POINT& sourcePoint)
 
     if (!(drawable = Drawable(QXL_COPY_BITS, &rect, NULL, 0))) {
         DbgPrint(TRACE_LEVEL_ERROR, ("Cannot get Drawable.\n"));
-        return;
+        return NULL;
     }
 
     drawable->u.copy_bits.src_pos.x = sourcePoint.x;
     drawable->u.copy_bits.src_pos.y = sourcePoint.y;
 
-    PushDrawable(drawable);
-
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
+
+    return drawable;
 }
 
-VOID QxlDevice::BltBits (
+QXLDrawable *QxlDevice::PrepareBltBits (
     BLT_INFO* pDst,
     CONST BLT_INFO* pSrc,
     UINT  NumRects,
@@ -4403,7 +4393,7 @@ VOID QxlDevice::BltBits (
 
     if (!(drawable = Drawable(QXL_DRAW_COPY, pRects, NULL, 0))) {
         DbgPrint(TRACE_LEVEL_ERROR, ("Cannot get Drawable.\n"));
-        return;
+        return NULL;
     }
 
     CONST RECT* pRect = &pRects[0];
@@ -4476,9 +4466,9 @@ VOID QxlDevice::BltBits (
          drawable->surfaces_rects[0].top, drawable->surfaces_rects[0].bottom,
          drawable->u.copy.src_bitmap));
 
-    PushDrawable(drawable);
-
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
+
+    return drawable;
 }
 
 VOID QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
