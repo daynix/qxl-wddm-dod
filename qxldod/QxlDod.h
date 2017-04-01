@@ -225,6 +225,41 @@ typedef struct _CURRENT_BDD_MODE
     } FrameBuffer;
 } CURRENT_BDD_MODE;
 
+#if DBG
+class TimeMeasurement
+{
+public:
+    TimeMeasurement()
+    {
+        Start();
+    }
+    void Start()
+    {
+        KeQuerySystemTime(&li1);
+    }
+    void Stop()
+    {
+        KeQuerySystemTime(&li2);
+    }
+    ULONG Diff()
+    {
+        return (ULONG)((li2.QuadPart - li1.QuadPart) / 10000);
+    }
+protected:
+    LARGE_INTEGER li1;
+    LARGE_INTEGER li2;
+};
+#else
+class TimeMeasurement
+{
+public:
+    TimeMeasurement() {}
+    void Start() {}
+    void Stop() {}
+    ULONG Diff() { return 0; }
+};
+#endif
+
 class QxlDod;
 
 class HwDeviceInterface {
