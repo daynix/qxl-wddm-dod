@@ -416,11 +416,13 @@ struct Resource {
 
 BOOLEAN
 FORCEINLINE
-WaitForObject(
+DoWaitForObject(
     PVOID Object,
-    PLARGE_INTEGER Timeout)
+    PLARGE_INTEGER Timeout,
+    LPCSTR name)
 {
     NTSTATUS status;
+    TimeMeasurement tm;
     status = KeWaitForSingleObject (
             Object,
             Executive,
@@ -428,8 +430,17 @@ WaitForObject(
             FALSE,
             Timeout);
     ASSERT(NT_SUCCESS(status));
+    tm.Stop();
+    if (name && tm.Diff() > 1900)
+    {
+        // 2 seconds in PresentDisplayOnly triggers watchdog on Win10RS1
+        // when VSync control enabled. Print the exact event name.
+        DbgPrint(TRACE_LEVEL_ERROR, ("Waiting %d ms for %s\n", tm.Diff(), name));
+    }
     return (status == STATUS_SUCCESS);
 }
+
+#define WaitForObject(o, timeout) DoWaitForObject((o), (timeout), #o)
 
 VOID
 FORCEINLINE

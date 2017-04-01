@@ -5056,7 +5056,8 @@ void QxlDevice::PresentThreadRoutine()
         // No need for a mutex, only one consumer thread
         SPICE_RING_CONS_WAIT(m_PresentRing, wait);
         while (wait) {
-            WaitForObject(&m_PresentEvent, NULL);
+            // we do not want indication of long wait on this event
+            DoWaitForObject(&m_PresentEvent, NULL, NULL);
             SPICE_RING_CONS_WAIT(m_PresentRing, wait);
         }
         drawables = *SPICE_RING_CONS_ITEM(m_PresentRing);
