@@ -4416,6 +4416,72 @@ QXLDrawable *QxlDevice::PrepareCopyBits(const RECT& rect, const POINT& sourcePoi
     return drawable;
 }
 
+BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src_end, INT pitch)
+{
+    PAGED_CODE();
+    LONG width, height;
+    size_t alloc_size;
+    UINT32 line_size;
+    Resource *image_res;
+    InternalImage *internal;
+    QXLDataChunk *chunk;
+    PLIST_ENTRY pDelayedList = NULL;
+    UINT8* dest, *dest_end;
+
+    height = drawable->u.copy.src_area.bottom;
+    width = drawable->u.copy.src_area.right;
+    line_size = width * 4;
+
+    alloc_size = BITMAP_ALLOC_BASE + BITS_BUF_MAX - BITS_BUF_MAX % line_size;
+    alloc_size = MIN(BITMAP_ALLOC_BASE + height * line_size, alloc_size);
+    image_res = (Resource*)AllocMem(MSPACE_TYPE_VRAM, alloc_size, TRUE);
+
+    if (image_res) {
+        image_res->refs = 1;
+        image_res->free = FreeBitmapImageEx;
+        image_res->ptr = this;
+
+        internal = (InternalImage *)image_res->res;
+        SetImageId(internal, FALSE, width, height, SPICE_BITMAP_FMT_32BIT, 0);
+        internal->image.descriptor.flags = 0;
+        internal->image.descriptor.type = SPICE_IMAGE_TYPE_BITMAP;
+
+        chunk = (QXLDataChunk *)(&internal->image.bitmap + 1);
+        chunk->data_size = 0;
+        chunk->prev_chunk = 0;
+        chunk->next_chunk = 0;
+        internal->image.bitmap.data = PA(chunk, m_SurfaceMemSlot);
+        internal->image.bitmap.flags = 0;
+        internal->image.descriptor.width = internal->image.bitmap.x = width;
+        internal->image.descriptor.height = internal->image.bitmap.y = height;
+        internal->image.bitmap.format = SPICE_BITMAP_FMT_RGBA;
+        internal->image.bitmap.stride = line_size;
+        internal->image.bitmap.palette = 0;
+
+        dest = chunk->data;
+        dest_end = (UINT8 *)image_res + alloc_size;
+
+        drawable->u.copy.src_bitmap = PA(&internal->image, m_SurfaceMemSlot);
+
+        DrawableAddRes(drawable, image_res);
+        RELEASE_RES(image_res);
+        alloc_size = height * line_size;
+    } else {
+        // can't allocate memory (forced), driver abort flow
+        DbgPrint(TRACE_LEVEL_ERROR, ("Cannot get bitmap for drawable (stopping)\n"));
+        return FALSE;
+    }
+
+    for (; src != src_end; src -= pitch, alloc_size -= line_size) {
+        BOOLEAN b = PutBytesAlign(&chunk, &dest, &dest_end, src, line_size, alloc_size, NULL);
+        if (!b) {
+            DbgPrint(TRACE_LEVEL_WARNING, ("%s: aborting copy of lines\n", __FUNCTION__));
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
 QXLDrawable *QxlDevice::PrepareBltBits (
     BLT_INFO* pDst,
     CONST BLT_INFO* pSrc,
@@ -4425,11 +4491,6 @@ QXLDrawable *QxlDevice::PrepareBltBits (
 {
     PAGED_CODE();
     QXLDrawable *drawable;
-    Resource *image_res;
-    InternalImage *internal;
-    size_t alloc_size;
-    QXLDataChunk *chunk;
-    UINT32 line_size;
     LONG width;
     LONG height;
 
@@ -4455,72 +4516,29 @@ QXLDrawable *QxlDevice::PrepareBltBits (
 
     height = pRect->bottom - pRect->top;
     width = pRect->right - pRect->left;
-    line_size = width * 4;
 
     drawable->u.copy.src_area.bottom = height;
     drawable->u.copy.src_area.left = 0;
     drawable->u.copy.src_area.top = 0;
     drawable->u.copy.src_area.right = width;
 
-    alloc_size = BITMAP_ALLOC_BASE + BITS_BUF_MAX - BITS_BUF_MAX % line_size;
-    alloc_size = MIN(BITMAP_ALLOC_BASE + height * line_size, alloc_size);
-    image_res = (Resource*)AllocMem(MSPACE_TYPE_VRAM, alloc_size, TRUE);
-    if (!image_res) {
-        ReleaseOutput(drawable->release_info.id);
-        DbgPrint(TRACE_LEVEL_ERROR, ("Cannot allocate bitmap for drawable\n"));
-        return NULL;
-    }
+    CopyRect(&drawable->surfaces_rects[1], pRect);
 
-    image_res->refs = 1;
-    image_res->free = FreeBitmapImageEx;
-    image_res->ptr = this;
-
-    internal = (InternalImage *)image_res->res;
-    SetImageId(internal, FALSE, width, height, SPICE_BITMAP_FMT_32BIT, 0);
-    internal->image.descriptor.flags = 0;
-    internal->image.descriptor.type = SPICE_IMAGE_TYPE_BITMAP;
-    chunk = (QXLDataChunk *)(&internal->image.bitmap + 1);
-    chunk->data_size = 0;
-    chunk->prev_chunk = 0;
-    chunk->next_chunk = 0;
-    internal->image.bitmap.data = PA(chunk, m_SurfaceMemSlot);
-    internal->image.bitmap.flags = 0;
-    internal->image.descriptor.width = internal->image.bitmap.x = width;
-    internal->image.descriptor.height = internal->image.bitmap.y = height;
-    internal->image.bitmap.format = SPICE_BITMAP_FMT_RGBA;
-    internal->image.bitmap.stride = line_size;
-
-    UINT8* src = (UINT8*)pSrc->pBits+
-                                (pSourcePoint->y) * pSrc->Pitch +
-                                (pSourcePoint->x * 4);
+    UINT8* src = (UINT8*)pSrc->pBits +
+        (pSourcePoint->y) * pSrc->Pitch +
+        (pSourcePoint->x * 4);
     UINT8* src_end = src - pSrc->Pitch;
     src += pSrc->Pitch * (height - 1);
-    UINT8* dest = chunk->data;
-    UINT8* dest_end = (UINT8 *)image_res + alloc_size;
-    alloc_size = height * line_size;
 
-    for (; src != src_end; src -= pSrc->Pitch, alloc_size -= line_size) {
-        if (!PutBytesAlign(&chunk, &dest, &dest_end, src,
-            line_size, alloc_size, NULL)) {
-            // not reachable when forced allocation used
-            ReleaseOutput(drawable->release_info.id);
-            DbgPrint(TRACE_LEVEL_ERROR, ("Cannot allocate additional bitmap for drawable\n"));
-            return NULL;
-        }
+    if (!AttachNewBitmap(drawable, src, src_end, (INT)pSrc->Pitch)) {
+        ReleaseOutput(drawable->release_info.id);
+        drawable = NULL;
+    } else {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s drawable= %p type = %d, effect = %d Dest right(%d) left(%d) top(%d) bottom(%d) src_bitmap= %p.\n", __FUNCTION__,
+            drawable, drawable->type, drawable->effect, drawable->surfaces_rects[0].right, drawable->surfaces_rects[0].left,
+            drawable->surfaces_rects[0].top, drawable->surfaces_rects[0].bottom,
+            drawable->u.copy.src_bitmap));
     }
-
-    internal->image.bitmap.palette = 0;
-
-    drawable->u.copy.src_bitmap = PA(&internal->image, m_SurfaceMemSlot);
-
-    CopyRect(&drawable->surfaces_rects[1], pRect);
-    DrawableAddRes(drawable, image_res);
-    RELEASE_RES(image_res);
-
-    DbgPrint(TRACE_LEVEL_INFORMATION, ("%s drawable= %p type = %d, effect = %d Dest right(%d) left(%d) top(%d) bottom(%d) src_bitmap= %p.\n", __FUNCTION__,
-         drawable, drawable->type, drawable->effect, drawable->surfaces_rects[0].right, drawable->surfaces_rects[0].left,
-         drawable->surfaces_rects[0].top, drawable->surfaces_rects[0].bottom,
-         drawable->u.copy.src_bitmap));
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 
