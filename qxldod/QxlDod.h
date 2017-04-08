@@ -473,6 +473,7 @@ ReleaseMutex(
 #define MAX_OUTPUT_RES 6
 
 typedef struct QXLOutput {
+    LIST_ENTRY list;
     UINT32 num_res;
 #ifdef DBG
     UINT32 type;
@@ -611,6 +612,8 @@ private:
     BOOLEAN PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
                             UINT8 **end_ptr, UINT8 *src, int size,
                             size_t alloc_size, PLIST_ENTRY pDelayed);
+    QXLDataChunk *MakeChunk(DelayedChunk *pdc);
+    ULONG PrepareDrawable(QXLDrawable*& drawable);
     void AsyncIo(UCHAR  Port, UCHAR Value);
     void SyncIo(UCHAR  Port, UCHAR Value);
     NTSTATUS UpdateChildStatus(BOOLEAN connect);

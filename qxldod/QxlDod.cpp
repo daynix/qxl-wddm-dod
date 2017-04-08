@@ -4224,6 +4224,13 @@ void QxlDevice::DrawableAddRes(QXLDrawable *drawable, Resource *res)
     AddRes(output, res);
 }
 
+static FORCEINLINE PLIST_ENTRY DelayedList(QXLDrawable *pd)
+{
+    QXLOutput *output;
+    output = (QXLOutput *)((UINT8 *)pd - sizeof(QXLOutput));
+    return &output->list;
+}
+
 void QxlDevice::CursorCmdAddRes(QXLCursorCmd *cmd, Resource *res)
 {
     PAGED_CODE();
@@ -4331,6 +4338,7 @@ QXLDrawable *QxlDevice::Drawable(UINT8 type, CONST RECT *area, CONST RECT *clip,
     drawable->surfaces_dest[1] = - 1;
     drawable->surfaces_dest[2] = -1;
     CopyRect(&drawable->bbox, area);
+    InitializeListHead(DelayedList(drawable));
 
     if (!SetClip(clip, drawable)) {
         DbgPrint(TRACE_LEVEL_VERBOSE, ("%s: set clip failed\n", __FUNCTION__));
@@ -4425,7 +4433,7 @@ BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src
     Resource *image_res;
     InternalImage *internal;
     QXLDataChunk *chunk;
-    PLIST_ENTRY pDelayedList = NULL;
+    PLIST_ENTRY pDelayedList = bForce ? NULL : DelayedList(drawable);
     UINT8* dest, *dest_end;
 
     height = drawable->u.copy.src_area.bottom;
@@ -4494,9 +4502,12 @@ BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src
     }
 
     for (; src != src_end; src -= pitch, alloc_size -= line_size) {
-        BOOLEAN b = PutBytesAlign(&chunk, &dest, &dest_end, src, line_size, alloc_size, pDelayedList);
-        if (!b) {
-            DbgPrint(TRACE_LEVEL_WARNING, ("%s: aborting copy of lines\n", __FUNCTION__));
+        if (!PutBytesAlign(&chunk, &dest, &dest_end, src, line_size, alloc_size, pDelayedList)) {
+            if (pitch < 0 && bForce) {
+                DbgPrint(TRACE_LEVEL_WARNING, ("%s: aborting copy of lines (forced)\n", __FUNCTION__));
+            } else {
+                DbgPrint(TRACE_LEVEL_WARNING, ("%s: unexpected aborting copy of lines (force %d, pitch %d)\n", __FUNCTION__, bForce, pitch));
+            }
             return FALSE;
         }
     }
@@ -4551,7 +4562,13 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     UINT8* src_end = src - pSrc->Pitch;
     src += pSrc->Pitch * (height - 1);
 
-    if (!AttachNewBitmap(drawable, src, src_end, (INT)pSrc->Pitch, TRUE)) {
+    if (!AttachNewBitmap(drawable, src, src_end, (INT)pSrc->Pitch, !g_bSupportVSync)) {
+        PLIST_ENTRY pDelayedList = DelayedList(drawable);
+        // if some delayed chunks were allocated, free them
+        while (!IsListEmpty(pDelayedList)) {
+            DelayedChunk *pdc = (DelayedChunk *)RemoveHeadList(pDelayedList);
+            delete[] reinterpret_cast<BYTE*>(pdc);
+        }
         ReleaseOutput(drawable->release_info.id);
         drawable = NULL;
     } else {
@@ -5179,11 +5196,76 @@ void QxlDevice::StopPresentThread()
     }
 }
 
+QXLDataChunk *QxlDevice::MakeChunk(DelayedChunk *pdc)
+{
+    PAGED_CODE();
+    QXLDataChunk *chunk = (QXLDataChunk *)AllocMem(MSPACE_TYPE_VRAM, pdc->chunk.data_size + sizeof(QXLDataChunk), TRUE);
+    if (chunk)
+    {
+        chunk->data_size = pdc->chunk.data_size;
+        chunk->next_chunk = 0;
+        RtlCopyMemory(chunk->data, pdc->chunk.data, chunk->data_size);
+    }
+    return chunk;
+}
+
+ULONG QxlDevice::PrepareDrawable(QXLDrawable*& drawable)
+{
+    PAGED_CODE();
+    ULONG n = 0;
+    BOOLEAN bFail;
+    PLIST_ENTRY pe = DelayedList(drawable);
+    QXLDataChunk *chunk, *lastchunk = NULL;
+
+    bFail = !m_bActive;
+
+    while (!IsListEmpty(pe)) {
+        DelayedChunk *pdc = (DelayedChunk *)RemoveHeadList(pe);
+        if (!lastchunk) {
+            lastchunk = (QXLDataChunk *)pdc->chunk.prev_chunk;
+        }
+        if (!bFail && !lastchunk) {
+            // bitmap was not allocated, this is single delayed chunk
+            QXL_ASSERT(IsListEmpty(pe));
+
+            if (AttachNewBitmap(
+                drawable,
+                pdc->chunk.data,
+                pdc->chunk.data + pdc->chunk.data_size,
+                -(drawable->u.copy.src_area.right * 4),
+                TRUE)) {
+                ++n;
+            } else {
+                bFail = TRUE;
+            }
+        }
+        if (!bFail && lastchunk) {
+            // some chunks were not allocated
+            chunk = MakeChunk(pdc);
+            if (chunk) {
+                chunk->prev_chunk = PA(lastchunk, m_SurfaceMemSlot);
+                lastchunk->next_chunk = PA(chunk, m_SurfaceMemSlot);
+                lastchunk = chunk;
+                ++n;
+            } else {
+                bFail = TRUE;
+            }
+        }
+        delete[] reinterpret_cast<BYTE*>(pdc);
+    }
+    if (bFail) {
+        ReleaseOutput(drawable->release_info.id);
+        drawable = NULL;
+    }
+    return n;
+}
+
 void QxlDevice::PresentThreadRoutine()
 {
     PAGED_CODE();
     int wait;
     int notify;
+    ULONG delayed = 0;
     QXLDrawable** drawables;
 
     DbgPrint(TRACE_LEVEL_INFORMATION, ("--->%s\n", __FUNCTION__));
@@ -5206,12 +5288,22 @@ void QxlDevice::PresentThreadRoutine()
 
         if (drawables) {
             for (UINT i = 0; drawables[i]; ++i)
-                PushDrawable(drawables[i]);
+            {
+                ULONG n = PrepareDrawable(drawables[i]);
+                // only reason why drawables[i] is zeroed is stop flow
+                if (drawables[i]) {
+                    delayed += n;
+                    PushDrawable(drawables[i]);
+                }
+            }
             delete[] drawables;
-        }
-        else {
+        } else {
             DbgPrint(TRACE_LEVEL_WARNING, ("%s is being terminated\n", __FUNCTION__));
             break;
+        }
+        if (delayed) {
+            DbgPrint(TRACE_LEVEL_WARNING, ("%s: %d delayed chunks\n", __FUNCTION__, delayed));
+            delayed = 0;
         }
     }
 }
