@@ -4416,7 +4416,7 @@ QXLDrawable *QxlDevice::PrepareCopyBits(const RECT& rect, const POINT& sourcePoi
     return drawable;
 }
 
-BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src_end, INT pitch)
+BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src_end, INT pitch, BOOLEAN bForce)
 {
     PAGED_CODE();
     LONG width, height;
@@ -4434,7 +4434,7 @@ BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src
 
     alloc_size = BITMAP_ALLOC_BASE + BITS_BUF_MAX - BITS_BUF_MAX % line_size;
     alloc_size = MIN(BITMAP_ALLOC_BASE + height * line_size, alloc_size);
-    image_res = (Resource*)AllocMem(MSPACE_TYPE_VRAM, alloc_size, TRUE);
+    image_res = (Resource*)AllocMem(MSPACE_TYPE_VRAM, alloc_size, bForce);
 
     if (image_res) {
         image_res->refs = 1;
@@ -4466,6 +4466,27 @@ BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src
         DrawableAddRes(drawable, image_res);
         RELEASE_RES(image_res);
         alloc_size = height * line_size;
+    } else if (!bForce) {
+        alloc_size = height * line_size;
+        // allocate delayed chunck for entire bitmap without limitation
+        DelayedChunk *pChunk = (DelayedChunk *)new (PagedPool)BYTE[alloc_size + sizeof(DelayedChunk)];
+        if (pChunk) {
+            // add it to delayed list
+            InsertTailList(pDelayedList, &pChunk->list);
+            // PutBytesAlign do not need to allocate additional memory
+            pDelayedList = NULL;
+            chunk = &pChunk->chunk;
+            chunk->data_size = 0;
+            chunk->prev_chunk = 0;
+            chunk->next_chunk = 0;
+            // set dest and dest_end
+            dest = chunk->data;
+            dest_end = chunk->data + alloc_size;
+        } else {
+            // can't allocate memory
+            DbgPrint(TRACE_LEVEL_ERROR, ("Cannot allocate delayed bitmap for drawable\n"));
+            return FALSE;
+        }
     } else {
         // can't allocate memory (forced), driver abort flow
         DbgPrint(TRACE_LEVEL_ERROR, ("Cannot get bitmap for drawable (stopping)\n"));
@@ -4473,7 +4494,7 @@ BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src
     }
 
     for (; src != src_end; src -= pitch, alloc_size -= line_size) {
-        BOOLEAN b = PutBytesAlign(&chunk, &dest, &dest_end, src, line_size, alloc_size, NULL);
+        BOOLEAN b = PutBytesAlign(&chunk, &dest, &dest_end, src, line_size, alloc_size, pDelayedList);
         if (!b) {
             DbgPrint(TRACE_LEVEL_WARNING, ("%s: aborting copy of lines\n", __FUNCTION__));
             return FALSE;
@@ -4530,7 +4551,7 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     UINT8* src_end = src - pSrc->Pitch;
     src += pSrc->Pitch * (height - 1);
 
-    if (!AttachNewBitmap(drawable, src, src_end, (INT)pSrc->Pitch)) {
+    if (!AttachNewBitmap(drawable, src, src_end, (INT)pSrc->Pitch, TRUE)) {
         ReleaseOutput(drawable->release_info.id);
         drawable = NULL;
     } else {
