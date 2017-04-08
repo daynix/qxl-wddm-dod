@@ -4544,7 +4544,7 @@ BOOLEAN QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
     UINT8 *now = *now_ptr;
     UINT8 *end = *end_ptr;
     size_t maxAllocSize = BITS_BUF_MAX - BITS_BUF_MAX % size;
-    alloc_size = MIN(size, maxAllocSize);
+    alloc_size = MIN(alloc_size, maxAllocSize);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
 
     while (size) {
