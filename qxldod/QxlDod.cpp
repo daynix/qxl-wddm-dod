@@ -3064,6 +3064,7 @@ QxlDevice::QxlDevice(_In_ QxlDod* pQxlDod)
     m_FreeOutputs = 0;
     m_Pending = 0;
     m_PresentThread = NULL;
+    m_bActive = FALSE;
 }
 
 QxlDevice::~QxlDevice(void)
@@ -3486,11 +3487,20 @@ NTSTATUS QxlDevice::QxlInit(DXGK_DISPLAY_INFORMATION* pDispInfo)
     m_RamHdr->int_mask = WIN_QXL_INT_MASK;
     CreateMemSlots();
     InitDeviceMemoryResources();
-    InitMonitorConfig();
+    Status = InitMonitorConfig();
+    if (!NT_SUCCESS(Status))
+    {
+        DbgPrint(TRACE_LEVEL_ERROR, ("InitMonitorConfig failed with status 0x%X\n", Status));
+        return Status;
+    }
     Status = AcquireDisplayInfo(*(pDispInfo));
     if (NT_SUCCESS(Status))
     {
+        m_bActive = TRUE;
         Status = StartPresentThread();
+    }
+    if (!NT_SUCCESS(Status)) {
+        m_bActive = FALSE;
     }
     return Status;
 }
@@ -3498,6 +3508,7 @@ NTSTATUS QxlDevice::QxlInit(DXGK_DISPLAY_INFORMATION* pDispInfo)
 void QxlDevice::QxlClose()
 {
     PAGED_CODE();
+    m_bActive = FALSE;
     StopPresentThread();
     DestroyMemSlots();
 }
@@ -3738,15 +3749,17 @@ void QxlDevice::InitDeviceMemoryResources(void)
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
-void QxlDevice::InitMonitorConfig(void)
+NTSTATUS QxlDevice::InitMonitorConfig(void)
 {
     PAGED_CODE();
     size_t config_size = sizeof(QXLMonitorsConfig) + sizeof(QXLHead);
     m_monitor_config = (QXLMonitorsConfig*) AllocMem(MSPACE_TYPE_DEVRAM, config_size, TRUE);
-    RtlZeroMemory(m_monitor_config, config_size);
-
-    m_monitor_config_pa = &m_RamHdr->monitors_config;
-    *m_monitor_config_pa = PA(m_monitor_config, m_MainMemSlot);
+    if (m_monitor_config) {
+        RtlZeroMemory(m_monitor_config, config_size);
+        m_monitor_config_pa = &m_RamHdr->monitors_config;
+        *m_monitor_config_pa = PA(m_monitor_config, m_MainMemSlot);
+    }
+    return m_monitor_config ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
 }
 
 void QxlDevice::InitMspace(UINT32 mspace_type, UINT8 *start, size_t capacity)
@@ -3945,14 +3958,18 @@ void QxlDevice::WaitForReleaseRing(void)
 {
     PAGED_CODE();
     int wait;
+    BOOLEAN locked;
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("--->%s\n", __FUNCTION__));
 
+    locked = WaitForObject(&m_MemLock, NULL);
     for (;;) {
         LARGE_INTEGER timeout;
 
         if (SPICE_RING_IS_EMPTY(m_ReleaseRing)) {
+            ReleaseMutex(&m_MemLock, locked);
             QXL_SLEEP(10);
+            locked = WaitForObject(&m_MemLock, NULL);
             if (!SPICE_RING_IS_EMPTY(m_ReleaseRing)) {
                 break;
             }
@@ -3960,17 +3977,20 @@ void QxlDevice::WaitForReleaseRing(void)
         }
         SPICE_RING_CONS_WAIT(m_ReleaseRing, wait);
 
-        if (!wait) {
+        if (!wait || !m_bActive) {
             break;
         }
 
+        ReleaseMutex(&m_MemLock, locked);
         timeout.QuadPart = -30 * 1000 * 10; //30ms
         WaitForObject(&m_DisplayEvent, &timeout);
+        locked = WaitForObject(&m_MemLock, NULL);
 
         if (SPICE_RING_IS_EMPTY(m_ReleaseRing)) {
             SyncIo(QXL_IO_NOTIFY_OOM, 0);
         }
     }
+    ReleaseMutex(&m_MemLock, locked);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("%s: <---\n", __FUNCTION__));
 }
 
@@ -4052,7 +4072,16 @@ void *QxlDevice::AllocMem(UINT32 mspace_type, size_t size, BOOL force)
      mspace_malloc_stats(m_MSInfo[mspace_type]._mspace);
 #endif
 
-    locked = WaitForObject(&m_MemLock, NULL);
+    if (force)
+        locked = WaitForObject(&m_MemLock, NULL);
+    else {
+        LARGE_INTEGER doNotWait;
+        doNotWait.QuadPart = 0;
+        locked = WaitForObject(&m_MemLock, &doNotWait);
+        if (!locked) {
+             return NULL;
+        }
+    }
 
     while (1) {
         /* Release lots of queued resources, before allocating, as we
@@ -4070,17 +4099,20 @@ void *QxlDevice::AllocMem(UINT32 mspace_type, size_t size, BOOL force)
             continue;
         }
 
-        if (force) {
+        if (force && m_bActive) {
             /* Ask spice to free some stuff */
+            ReleaseMutex(&m_MemLock, locked);
             WaitForReleaseRing();
+            locked = WaitForObject(&m_MemLock, NULL);
         } else {
             /* Fail */
             break;
         }
     }
+
     ReleaseMutex(&m_MemLock, locked);
 
-    ASSERT((!ptr && !force) || (ptr >= m_MSInfo[mspace_type].mspace_start &&
+    ASSERT((!ptr && (!force || !m_bActive)) || (ptr >= m_MSInfo[mspace_type].mspace_start &&
                                       ptr < m_MSInfo[mspace_type].mspace_end));
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<---%s: ptr 0x%x\n", __FUNCTION__, ptr));
     return ptr;
@@ -4113,6 +4145,9 @@ QXLDrawable *QxlDevice::GetDrawable()
     QXLOutput *output;
 
     output = (QXLOutput *)AllocMem(MSPACE_TYPE_VRAM, sizeof(QXLOutput) + sizeof(QXLDrawable), TRUE);
+    if (!output) {
+        return NULL;
+    }
     output->num_res = 0;
     RESOURCE_TYPE(output, RESOURCE_TYPE_DRAWABLE);
     ((QXLDrawable *)output->data)->release_info.id = (UINT64)output;
@@ -4128,6 +4163,9 @@ QXLCursorCmd *QxlDevice::CursorCmd()
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
     output = (QXLOutput *)AllocMem(MSPACE_TYPE_VRAM, sizeof(QXLOutput) + sizeof(QXLCursorCmd), TRUE);
+    if (!output) {
+        return NULL;
+    }
     output->num_res = 0;
     RESOURCE_TYPE(output, RESOURCE_TYPE_CURSOR);
     cursor_cmd = (QXLCursorCmd *)output->data;
@@ -4150,6 +4188,10 @@ BOOL QxlDevice::SetClip(const RECT *clip, QXLDrawable *drawable)
     QXLClipRects *rects;
     rects_res = (Resource *)AllocMem(MSPACE_TYPE_VRAM, sizeof(Resource) + sizeof(QXLClipRects) +
                                         sizeof(QXLRect), TRUE);
+    if (rects_res == NULL) {
+        return FALSE;
+    }
+
     rects_res->refs = 1;
     rects_res->free = FreeClipRectsEx;
     rects_res->ptr = this;
@@ -4277,6 +4319,9 @@ QXLDrawable *QxlDevice::Drawable(UINT8 type, CONST RECT *area, CONST RECT *clip,
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
 
     drawable = GetDrawable();
+    if (!drawable) {
+        return NULL;
+    }
     drawable->surface_id = surface_id;
     drawable->type = type;
     drawable->effect = QXL_EFFECT_OPAQUE;
@@ -4420,6 +4465,11 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     alloc_size = BITMAP_ALLOC_BASE + BITS_BUF_MAX - BITS_BUF_MAX % line_size;
     alloc_size = MIN(BITMAP_ALLOC_BASE + height * line_size, alloc_size);
     image_res = (Resource*)AllocMem(MSPACE_TYPE_VRAM, alloc_size, TRUE);
+    if (!image_res) {
+        ReleaseOutput(drawable->release_info.id);
+        DbgPrint(TRACE_LEVEL_ERROR, ("Cannot allocate bitmap for drawable\n"));
+        return NULL;
+    }
 
     image_res->refs = 1;
     image_res->free = FreeBitmapImageEx;
@@ -4450,8 +4500,12 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     alloc_size = height * line_size;
 
     for (; src != src_end; src -= pSrc->Pitch, alloc_size -= line_size) {
-        PutBytesAlign(&chunk, &dest, &dest_end, src,
-                      line_size, alloc_size, line_size);
+        if (!PutBytesAlign(&chunk, &dest, &dest_end, src,
+            line_size, alloc_size, line_size)) {
+            ReleaseOutput(drawable->release_info.id);
+            DbgPrint(TRACE_LEVEL_ERROR, ("Cannot allocate additional bitmap for drawable\n"));
+            return NULL;
+        }
     }
 
     internal->image.bitmap.palette = 0;
@@ -4472,7 +4526,7 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     return drawable;
 }
 
-VOID QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
+BOOLEAN QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
                             UINT8 **end_ptr, UINT8 *src, int size,
                             size_t alloc_size, uint32_t alignment)
 {
@@ -4490,6 +4544,9 @@ VOID QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
             aligned_size -=  aligned_size % alignment;
 
             void *ptr = AllocMem(MSPACE_TYPE_VRAM, size + sizeof(QXLDataChunk), TRUE);
+            if (!ptr) {
+                return FALSE;
+            }
             chunk->next_chunk = PA(ptr, m_SurfaceMemSlot);
             ((QXLDataChunk *)ptr)->prev_chunk = PA(chunk, m_SurfaceMemSlot);
             chunk = (QXLDataChunk *)ptr;
@@ -4510,6 +4567,7 @@ VOID QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
     *now_ptr = now;
     *end_ptr = end;
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
+    return TRUE;
 }
 
 VOID QxlDevice::BlackOutScreen(CURRENT_BDD_MODE* pCurrentBddMod)
@@ -4573,6 +4631,11 @@ NTSTATUS  QxlDevice::SetPointerShape(_In_ CONST DXGKARG_SETPOINTERSHAPE* pSetPoi
     int num_images = 1;
 
     cursor_cmd = CursorCmd();
+    if (!cursor_cmd) {
+        DbgPrint(TRACE_LEVEL_ERROR, ("%s: Failed to allocate cursor command\n", __FUNCTION__));
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
     cursor_cmd->type = QXL_CURSOR_SET;
 
     cursor_cmd->u.set.visible = TRUE;
@@ -4580,6 +4643,12 @@ NTSTATUS  QxlDevice::SetPointerShape(_In_ CONST DXGKARG_SETPOINTERSHAPE* pSetPoi
     cursor_cmd->u.set.position.y = 0;
 
     res = (Resource *)AllocMem(MSPACE_TYPE_VRAM, CURSOR_ALLOC_SIZE, TRUE);
+    if (!res) {
+        DbgPrint(TRACE_LEVEL_ERROR, ("%s: Failed to allocate cursor data\n", __FUNCTION__));
+        ReleaseOutput(cursor_cmd->release_info.id);
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
     res->refs = 1;
     res->free = FreeCursorEx;
     res->ptr = this;
@@ -4616,8 +4685,13 @@ NTSTATUS  QxlDevice::SetPointerShape(_In_ CONST DXGKARG_SETPOINTERSHAPE* pSetPoi
     end = (UINT8 *)res + CURSOR_ALLOC_SIZE;
     src_end = src + (pSetPointerShape->Pitch * pSetPointerShape->Height * num_images);
     for (; src != src_end; src += pSetPointerShape->Pitch) {
-        PutBytesAlign(&chunk, &now, &end, src, line_size,
-                 PAGE_SIZE, 1);
+        if (!PutBytesAlign(&chunk, &now, &end, src, line_size,
+                 PAGE_SIZE, 1))
+        {
+            DbgPrint(TRACE_LEVEL_ERROR, ("%s: Failed to allocate cursor bitmap\n", __FUNCTION__));
+            ReleaseOutput(cursor_cmd->release_info.id);
+            return STATUS_INSUFFICIENT_RESOURCES;
+        }
     }
     CursorCmdAddRes(cursor_cmd, res);
     RELEASE_RES(res);
@@ -4638,6 +4712,11 @@ NTSTATUS QxlDevice::SetPointerPosition(_In_ CONST DXGKARG_SETPOINTERPOSITION* pS
                                  pSetPointerPosition->X,
                                  pSetPointerPosition->Y));
     QXLCursorCmd *cursor_cmd = CursorCmd();
+    if (!cursor_cmd) {
+        DbgPrint(TRACE_LEVEL_ERROR, ("%s: Failed to allocate cursor command\n", __FUNCTION__));
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
     if (pSetPointerPosition->X < 0 || !pSetPointerPosition->Flags.Visible) {
         cursor_cmd->type = QXL_CURSOR_HIDE;
     } else {

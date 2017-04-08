@@ -580,7 +580,7 @@ private:
     UINT64 VA(QXLPHYSICAL paddr, UINT8 slot_id);
     QXLPHYSICAL PA(PVOID virt, UINT8 slot_id);
     void InitDeviceMemoryResources(void);
-    void InitMonitorConfig();
+    NTSTATUS InitMonitorConfig();
     void InitMspace(UINT32 mspace_type, UINT8 *start, size_t capacity);
     void FlushReleaseRing();
     void FreeMem(UINT32 mspace_type, void *ptr);
@@ -601,7 +601,7 @@ private:
     void PushCmd(void);
     void WaitForCursorRing(void);
     void PushCursor(void);
-    void PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
+    BOOLEAN PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
                             UINT8 **end_ptr, UINT8 *src, int size,
                             size_t alloc_size, uint32_t alignment);
     void AsyncIo(UCHAR  Port, UCHAR Value);
@@ -671,6 +671,7 @@ private:
 
     QXLPresentOnlyRing m_PresentRing[1];
     HANDLE m_PresentThread;
+    BOOLEAN m_bActive;
 };
 
 class QxlDod {
