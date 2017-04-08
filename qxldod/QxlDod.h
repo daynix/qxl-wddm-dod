@@ -260,6 +260,12 @@ public:
 };
 #endif
 
+struct DelayedChunk
+{
+    LIST_ENTRY list;
+    QXLDataChunk chunk;
+};
+
 class QxlDod;
 
 class HwDeviceInterface {
@@ -603,7 +609,7 @@ private:
     void PushCursor(void);
     BOOLEAN PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
                             UINT8 **end_ptr, UINT8 *src, int size,
-                            size_t alloc_size, uint32_t alignment);
+                            size_t alloc_size, PLIST_ENTRY pDelayed);
     void AsyncIo(UCHAR  Port, UCHAR Value);
     void SyncIo(UCHAR  Port, UCHAR Value);
     NTSTATUS UpdateChildStatus(BOOLEAN connect);

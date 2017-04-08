@@ -4501,7 +4501,8 @@ QXLDrawable *QxlDevice::PrepareBltBits (
 
     for (; src != src_end; src -= pSrc->Pitch, alloc_size -= line_size) {
         if (!PutBytesAlign(&chunk, &dest, &dest_end, src,
-            line_size, alloc_size, line_size)) {
+            line_size, alloc_size, NULL)) {
+            // not reachable when forced allocation used
             ReleaseOutput(drawable->release_info.id);
             DbgPrint(TRACE_LEVEL_ERROR, ("Cannot allocate additional bitmap for drawable\n"));
             return NULL;
@@ -4526,36 +4527,54 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     return drawable;
 }
 
+// can work in 2 modes:
+// forced - as before, when pDelayed not provided or if VSync is not in use
+// non-forced, if VSync is active and pDelayed provided. In this case, if memory
+// can't be allocated immediately, allocates 'delayed chunk' and copies data
+// to it. Further, before send to the device, this 'delayed chunk' should be processed,
+// regular chunk allocated from device memory and the data copied to it
 BOOLEAN QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
                             UINT8 **end_ptr, UINT8 *src, int size,
-                            size_t alloc_size, uint32_t alignment)
+                            size_t alloc_size, PLIST_ENTRY pDelayed)
 {
     PAGED_CODE();
+    BOOLEAN bResult = TRUE;
+    BOOLEAN bForced = !g_bSupportVSync || !pDelayed;
     QXLDataChunk *chunk = *chunk_ptr;
     UINT8 *now = *now_ptr;
     UINT8 *end = *end_ptr;
+    size_t maxAllocSize = BITS_BUF_MAX - BITS_BUF_MAX % size;
+    alloc_size = MIN(size, maxAllocSize);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
 
     while (size) {
         int cp_size = (int)MIN(end - now, size);
         if (!cp_size) {
-            size_t aligned_size;
-            aligned_size = (int)MIN(alloc_size + alignment - 1, BITS_BUF_MAX);
-            aligned_size -=  aligned_size % alignment;
-
-            void *ptr = AllocMem(MSPACE_TYPE_VRAM, size + sizeof(QXLDataChunk), TRUE);
-            if (!ptr) {
-                return FALSE;
+            void *ptr = (bForced || IsListEmpty(pDelayed)) ? AllocMem(MSPACE_TYPE_VRAM, alloc_size + sizeof(QXLDataChunk), bForced) : NULL;
+            if (ptr) {
+                chunk->next_chunk = PA(ptr, m_SurfaceMemSlot);
+                ((QXLDataChunk *)ptr)->prev_chunk = PA(chunk, m_SurfaceMemSlot);
+                chunk = (QXLDataChunk *)ptr;
+                chunk->next_chunk = 0;
             }
-            chunk->next_chunk = PA(ptr, m_SurfaceMemSlot);
-            ((QXLDataChunk *)ptr)->prev_chunk = PA(chunk, m_SurfaceMemSlot);
-            chunk = (QXLDataChunk *)ptr;
-            chunk->data_size = 0;
-            chunk->next_chunk = 0;
-            now = chunk->data;
-            end = now + size;
-
-            cp_size = (int)MIN(end - now, size);
+            if (!ptr && pDelayed) {
+                ptr = new (PagedPool)BYTE[alloc_size + sizeof(DelayedChunk)];
+                if (ptr) {
+                    DelayedChunk *pChunk = (DelayedChunk *)ptr;
+                    InsertTailList(pDelayed, &pChunk->list);
+                    pChunk->chunk.prev_chunk = (QXLPHYSICAL)chunk;
+                    chunk = &pChunk->chunk;
+                } 
+            }
+            if (ptr) {
+                chunk->data_size = 0;
+                now = chunk->data;
+                end = now + alloc_size;
+                cp_size = (int)MIN(end - now, size);
+            } else {
+                bResult = FALSE;
+                break;
+            }
         }
         RtlCopyMemory(now, src, cp_size);
         src += cp_size;
@@ -4567,7 +4586,7 @@ BOOLEAN QxlDevice::PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
     *now_ptr = now;
     *end_ptr = end;
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
-    return TRUE;
+    return bResult;
 }
 
 VOID QxlDevice::BlackOutScreen(CURRENT_BDD_MODE* pCurrentBddMod)
@@ -4685,12 +4704,11 @@ NTSTATUS  QxlDevice::SetPointerShape(_In_ CONST DXGKARG_SETPOINTERSHAPE* pSetPoi
     end = (UINT8 *)res + CURSOR_ALLOC_SIZE;
     src_end = src + (pSetPointerShape->Pitch * pSetPointerShape->Height * num_images);
     for (; src != src_end; src += pSetPointerShape->Pitch) {
-        if (!PutBytesAlign(&chunk, &now, &end, src, line_size,
-                 PAGE_SIZE, 1))
-        {
-            DbgPrint(TRACE_LEVEL_ERROR, ("%s: Failed to allocate cursor bitmap\n", __FUNCTION__));
-            ReleaseOutput(cursor_cmd->release_info.id);
-            return STATUS_INSUFFICIENT_RESOURCES;
+        if (!PutBytesAlign(&chunk, &now, &end, src, line_size, PAGE_SIZE - PAGE_SIZE % line_size, NULL)) {
+            // we have a chance to get here only with color cursor bigger than 45*45
+            // and only if we modify this procedure to use non-forced allocation  
+            DbgPrint(TRACE_LEVEL_ERROR, ("%s: failed to push part of shape\n", __FUNCTION__));
+            break;
         }
     }
     CursorCmdAddRes(cursor_cmd, res);
