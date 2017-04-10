@@ -4135,7 +4135,8 @@ QXLDrawable *QxlDevice::GetDrawable()
     PAGED_CODE();
     QXLOutput *output;
 
-    output = (QXLOutput *)AllocMem(MSPACE_TYPE_VRAM, sizeof(QXLOutput) + sizeof(QXLDrawable), TRUE);
+    // commands must be allocated into Bar0 (DEVRAM)
+    output = (QXLOutput *)AllocMem(MSPACE_TYPE_DEVRAM, sizeof(QXLOutput) + sizeof(QXLDrawable), TRUE);
     if (!output) {
         return NULL;
     }
@@ -4153,7 +4154,8 @@ QXLCursorCmd *QxlDevice::CursorCmd()
     QXLOutput *output;
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
-    output = (QXLOutput *)AllocMem(MSPACE_TYPE_VRAM, sizeof(QXLOutput) + sizeof(QXLCursorCmd), TRUE);
+    // commands must be allocated into Bar0 (DEVRAM)
+    output = (QXLOutput *)AllocMem(MSPACE_TYPE_DEVRAM, sizeof(QXLOutput) + sizeof(QXLCursorCmd), TRUE);
     if (!output) {
         return NULL;
     }
