@@ -3548,24 +3548,14 @@ BOOL QxlDevice::InitMemSlots(void)
     m_SlotGenBits = m_RomHdr->slot_gen_bits;
     m_SlotIdBits = m_RomHdr->slot_id_bits;
     m_VaSlotMask = (~(uint64_t)0) >> (m_SlotIdBits + m_SlotGenBits);
-    size_t size = m_RomHdr->slots_end * sizeof(MemSlot);
-    m_MemSlots = reinterpret_cast<MemSlot*>
-                                (new (PagedPool) BYTE[size]);
-    if (m_MemSlots)
-    {
-        RtlZeroMemory(m_MemSlots, size);
-        return TRUE;
-    }
-    DbgPrint(TRACE_LEVEL_ERROR, ("---> %s Failed to init mem slot\n", __FUNCTION__));
-    return FALSE;
+    RtlZeroMemory(m_MemSlots, sizeof(m_MemSlots));
+    return TRUE;
 }
 
 void QxlDevice::DestroyMemSlots(void)
 {
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
-    delete [] reinterpret_cast<BYTE*>(m_MemSlots);
-    m_MemSlots = NULL;
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
@@ -3693,7 +3683,7 @@ void QxlDevice::SyncIo(UCHAR  Port, UCHAR Value)
     ReleaseMutex(&m_IoLock, locked);
 }
 
-UINT8 QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 vastart, UINT64 vaend)
+void QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 vastart, UINT64 vaend)
 {
     PAGED_CODE();
     UINT64 high_bits;
@@ -3702,7 +3692,7 @@ UINT8 QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 va
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
     slot_index = m_RomHdr->slots_start + Idx;
-    pSlot = &m_MemSlots[slot_index];
+    pSlot = &m_MemSlots[Idx];
     pSlot->start_phys_addr = pastart;
     pSlot->end_phys_addr = paend;
     pSlot->start_virt_addr = vastart;
@@ -3716,7 +3706,6 @@ UINT8 QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 va
     high_bits <<= (64 - (m_SlotGenBits + m_SlotIdBits));
     pSlot->high_bits = high_bits;
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
-    return slot_index;
 }
 
 BOOL QxlDevice::CreateMemSlots(void)
@@ -3724,17 +3713,17 @@ BOOL QxlDevice::CreateMemSlots(void)
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s 3\n", __FUNCTION__));
     UINT64 len = m_RomHdr->surface0_area_size + m_RomHdr->num_pages * PAGE_SIZE;
-    m_MainMemSlot = SetupMemSlot(0,
-                                (UINT64)m_RamPA.QuadPart, 
-                                (UINT64)(m_RamPA.QuadPart + len),
-                                (UINT64)m_RamStart,
-                                (UINT64)(m_RamStart + len));
+    SetupMemSlot(m_MainMemSlot,
+                 (UINT64)m_RamPA.QuadPart,
+                 (UINT64)(m_RamPA.QuadPart + len),
+                 (UINT64)m_RamStart,
+                 (UINT64)(m_RamStart + len));
     len = m_VRamSize;
-    m_SurfaceMemSlot = SetupMemSlot(1,
-                                (UINT64)m_VRamPA.QuadPart,
-                                (UINT64)(m_VRamPA.QuadPart + len),
-                                (UINT64)m_VRamStart,
-                                (UINT64)(m_VRamStart + len));
+    SetupMemSlot(m_SurfaceMemSlot,
+                 (UINT64)m_VRamPA.QuadPart,
+                 (UINT64)(m_VRamPA.QuadPart + len),
+                 (UINT64)m_VRamStart,
+                 (UINT64)(m_VRamStart + len));
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return TRUE;
 }

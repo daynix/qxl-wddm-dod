@@ -581,7 +581,7 @@ private:
     void CreatePrimarySurface(PVIDEO_MODE_INFORMATION pModeInfo);
     void DestroyPrimarySurface(void);
     void SetupHWSlot(UINT8 Idx, MemSlot *pSlot);
-    UINT8 SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 vastart, UINT64 vaend);
+    void SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 vastart, UINT64 vaend);
     BOOL CreateEvents(void);
     BOOL CreateRings(void);
     UINT64 VA(QXLPHYSICAL paddr, UINT8 slot_id);
@@ -646,9 +646,8 @@ private:
     QXLRom *m_RomHdr;
     ULONG m_RomSize;
 
-    MemSlot *m_MemSlots;
-    UINT8 m_MainMemSlot;
-    UINT8 m_SurfaceMemSlot;
+    MemSlot m_MemSlots[2];
+    enum { m_MainMemSlot = 0, m_SurfaceMemSlot = 1 };
     UINT8 m_SlotIdBits;
     UINT8 m_SlotGenBits;
     QXLPHYSICAL m_VaSlotMask;
