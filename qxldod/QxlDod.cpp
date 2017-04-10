@@ -3591,7 +3591,7 @@ void QxlDevice::DestroyPrimarySurface(void)
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
-_inline QXLPHYSICAL QxlDevice::PA(PVOID virt)
+inline QXLPHYSICAL QxlDevice::PA(PVOID virt)
 {
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--> %s\n", __FUNCTION__));
@@ -3602,7 +3602,7 @@ _inline QXLPHYSICAL QxlDevice::PA(PVOID virt)
     return pSlot->high_bits | ((UINT8*)virt - pSlot->start_virt_addr);
 }
 
-_inline UINT8 *QxlDevice::VA(QXLPHYSICAL paddr)
+inline UINT8 *QxlDevice::VA(QXLPHYSICAL paddr)
 {
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));

@@ -584,8 +584,8 @@ private:
     void SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT8 *vastart, UINT8 *valast);
     BOOL CreateEvents(void);
     BOOL CreateRings(void);
-    UINT8 *VA(QXLPHYSICAL paddr);
-    QXLPHYSICAL PA(PVOID virt);
+    inline UINT8 *VA(QXLPHYSICAL paddr);
+    inline QXLPHYSICAL PA(PVOID virt);
     void InitDeviceMemoryResources(void);
     NTSTATUS InitMonitorConfig();
     void InitMspace(UINT32 mspace_type, UINT8 *start, size_t capacity);
