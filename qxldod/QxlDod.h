@@ -590,7 +590,7 @@ private:
     NTSTATUS InitMonitorConfig();
     void InitMspace(UINT32 mspace_type, UINT8 *start, size_t capacity);
     void FlushReleaseRing();
-    void FreeMem(UINT32 mspace_type, void *ptr);
+    void FreeMem(void *ptr);
     UINT64 ReleaseOutput(UINT64 output_id);
     void WaitForReleaseRing(void);
     void EmptyReleaseRing(void);

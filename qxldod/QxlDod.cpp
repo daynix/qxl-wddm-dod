@@ -4052,7 +4052,7 @@ UINT64 QxlDevice::ReleaseOutput(UINT64 output_id)
         RELEASE_RES(*now);
     }
     next = *(UINT64*)output->data;
-    FreeMem(MSPACE_TYPE_VRAM, output);
+    FreeMem(output);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<---%s\n", __FUNCTION__));
     return next;
 }
@@ -4118,24 +4118,27 @@ void *QxlDevice::AllocMem(UINT32 mspace_type, size_t size, BOOL force)
     return ptr;
 }
 
-void QxlDevice::FreeMem(UINT32 mspace_type, void *ptr)
+void QxlDevice::FreeMem(void *ptr)
 {
     PAGED_CODE();
-    ASSERT(m_MSInfo[mspace_type]._mspace);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
 
-#ifdef DBG
-    if (!((UINT8 *)ptr >= m_MSInfo[mspace_type].mspace_start &&
-                 (UINT8 *)ptr < m_MSInfo[mspace_type].mspace_end)) {
-        DbgPrint(TRACE_LEVEL_ERROR, ("ASSERT failed @ %s, %p not in [%p, %p) (%d)\n", __FUNCTION__,
-            ptr, m_MSInfo[mspace_type].mspace_start,
-            m_MSInfo[mspace_type].mspace_end, mspace_type));
+    for (const MspaceInfo *info = m_MSInfo; ; ++info)
+    {
+        if (info == m_MSInfo + _countof(m_MSInfo))
+        {
+            DbgPrint(TRACE_LEVEL_ERROR, ("ASSERT failed @ %s, %p not in device memory\n",
+                                        __FUNCTION__, ptr));
+            break;
+        }
+        if (info->_mspace && ptr >= info->mspace_start && ptr < info->mspace_end)
+        {
+            BOOLEAN locked = WaitForObject(&m_MemLock, NULL);
+            mspace_free(info->_mspace, ptr);
+            ReleaseMutex(&m_MemLock, locked);
+            break;
+        }
     }
-#endif
-    BOOLEAN locked = FALSE;
-    locked = WaitForObject(&m_MemLock, NULL);
-    mspace_free(m_MSInfo[mspace_type]._mspace, ptr);
-    ReleaseMutex(&m_MemLock, locked);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
@@ -4258,9 +4261,9 @@ void QxlDevice::FreeClipRects(Resource *res)
     while (chunk_phys) {
         QXLDataChunk *chunk = (QXLDataChunk *)VA(chunk_phys, m_SurfaceMemSlot);
         chunk_phys = chunk->next_chunk;
-        FreeMem(MSPACE_TYPE_VRAM, chunk);
+        FreeMem(chunk);
     }
-    FreeMem(MSPACE_TYPE_VRAM, res);
+    FreeMem(res);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
@@ -4285,10 +4288,10 @@ void QxlDevice::FreeBitmapImage(Resource *res)
     while (chunk_phys) {
         QXLDataChunk *chunk = (QXLDataChunk *)VA(chunk_phys, m_SurfaceMemSlot);
         chunk_phys = chunk->next_chunk;
-        FreeMem(MSPACE_TYPE_VRAM, chunk);
+        FreeMem(chunk);
     }
 
-    FreeMem(MSPACE_TYPE_VRAM, res);
+    FreeMem(res);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
@@ -4310,10 +4313,10 @@ void QxlDevice::FreeCursor(Resource *res)
     while (chunk_phys) {
         QXLDataChunk *chunk = (QXLDataChunk *)VA(chunk_phys, m_SurfaceMemSlot);
         chunk_phys = chunk->next_chunk;
-        FreeMem(MSPACE_TYPE_VRAM, chunk);
+        FreeMem(chunk);
     }
 
-    FreeMem(MSPACE_TYPE_VRAM, res);
+    FreeMem(res);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
 }
 
