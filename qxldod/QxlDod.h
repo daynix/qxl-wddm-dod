@@ -364,8 +364,8 @@ typedef struct _MemSlot {
     UINT8 generation;
     UINT64 start_phys_addr;
     UINT64 end_phys_addr;
-    UINT64 start_virt_addr;
-    UINT64 end_virt_addr;
+    UINT8 *start_virt_addr;
+    UINT8 *last_virt_addr;
     QXLPHYSICAL high_bits;
 } MemSlot;
 
@@ -581,10 +581,10 @@ private:
     void CreatePrimarySurface(PVIDEO_MODE_INFORMATION pModeInfo);
     void DestroyPrimarySurface(void);
     void SetupHWSlot(UINT8 Idx, MemSlot *pSlot);
-    void SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 vastart, UINT64 vaend);
+    void SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT8 *vastart, UINT8 *valast);
     BOOL CreateEvents(void);
     BOOL CreateRings(void);
-    UINT64 VA(QXLPHYSICAL paddr, UINT8 slot_id);
+    UINT8 *VA(QXLPHYSICAL paddr, UINT8 slot_id);
     QXLPHYSICAL PA(PVOID virt, UINT8 slot_id);
     void InitDeviceMemoryResources(void);
     NTSTATUS InitMonitorConfig();

@@ -3596,10 +3596,10 @@ _inline QXLPHYSICAL QxlDevice::PA(PVOID virt, UINT8 slot_id)
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--> %s\n", __FUNCTION__));
     MemSlot *pSlot = &m_MemSlots[slot_id];
-    return pSlot->high_bits | ((UINT64)virt - pSlot->start_virt_addr);
+    return pSlot->high_bits | ((UINT8*)virt - pSlot->start_virt_addr);
 }
 
-_inline UINT64 QxlDevice::VA(QXLPHYSICAL paddr, UINT8 slot_id)
+_inline UINT8 *QxlDevice::VA(QXLPHYSICAL paddr, UINT8 slot_id)
 {
     PAGED_CODE();
     UINT64 virt;
@@ -3607,9 +3607,7 @@ _inline UINT64 QxlDevice::VA(QXLPHYSICAL paddr, UINT8 slot_id)
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s\n", __FUNCTION__));
     virt = paddr & m_VaSlotMask;
-    virt += pSlot->start_virt_addr;;
-
-    return virt;
+    return pSlot->start_virt_addr + virt;
 }
 
 void QxlDevice::SetupHWSlot(UINT8 Idx, MemSlot *pSlot)
@@ -3683,7 +3681,7 @@ void QxlDevice::SyncIo(UCHAR  Port, UCHAR Value)
     ReleaseMutex(&m_IoLock, locked);
 }
 
-void QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 vastart, UINT64 vaend)
+void QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT8 *vastart, UINT8 *valast)
 {
     PAGED_CODE();
     UINT64 high_bits;
@@ -3696,7 +3694,7 @@ void QxlDevice::SetupMemSlot(UINT8 Idx, UINT64 pastart, UINT64 paend, UINT64 vas
     pSlot->start_phys_addr = pastart;
     pSlot->end_phys_addr = paend;
     pSlot->start_virt_addr = vastart;
-    pSlot->end_virt_addr = vaend;
+    pSlot->last_virt_addr = valast;
 
     SetupHWSlot(Idx + 1, pSlot);
 
@@ -3714,16 +3712,16 @@ BOOL QxlDevice::CreateMemSlots(void)
     DbgPrint(TRACE_LEVEL_VERBOSE, ("---> %s 3\n", __FUNCTION__));
     UINT64 len = m_RomHdr->surface0_area_size + m_RomHdr->num_pages * PAGE_SIZE;
     SetupMemSlot(m_MainMemSlot,
-                 (UINT64)m_RamPA.QuadPart,
+                 (UINT64)m_RamPA.QuadPart, 
                  (UINT64)(m_RamPA.QuadPart + len),
-                 (UINT64)m_RamStart,
-                 (UINT64)(m_RamStart + len));
+                 m_RamStart,
+                 m_RamStart + len - 1);
     len = m_VRamSize;
     SetupMemSlot(m_SurfaceMemSlot,
                  (UINT64)m_VRamPA.QuadPart,
                  (UINT64)(m_VRamPA.QuadPart + len),
-                 (UINT64)m_VRamStart,
-                 (UINT64)(m_VRamStart + len));
+                 m_VRamStart,
+                 m_VRamStart + len - 1);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return TRUE;
 }
