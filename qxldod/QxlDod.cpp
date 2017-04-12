@@ -4077,8 +4077,11 @@ void *QxlDevice::AllocMem(UINT32 mspace_type, size_t size, BOOL force)
         FlushReleaseRing();
 
         ptr = mspace_malloc(m_MSInfo[mspace_type]._mspace, size);
-        if (!ptr && mspace_type == MSPACE_TYPE_VRAM)
-            ptr = mspace_malloc(m_MSInfo[MSPACE_TYPE_DEVRAM]._mspace, size);
+        if (!ptr && mspace_type == MSPACE_TYPE_VRAM &&
+            (ptr = mspace_malloc(m_MSInfo[MSPACE_TYPE_DEVRAM]._mspace, size))) {
+            /* for proper address check at the end of the procedure */
+            mspace_type = MSPACE_TYPE_DEVRAM;
+        }
         if (ptr) {
             break;
         }
