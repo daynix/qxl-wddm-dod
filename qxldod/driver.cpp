@@ -198,11 +198,7 @@ DodRemoveDevice(
 
     QxlDod* pQxl = reinterpret_cast<QxlDod*>(pDeviceContext);
 
-    if (pQxl)
-    {
-        delete pQxl;
-        pQxl = NULL;
-    }
+    delete pQxl;
 
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<--- %s\n", __FUNCTION__));
     return STATUS_SUCCESS;
