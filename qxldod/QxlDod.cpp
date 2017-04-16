@@ -4500,6 +4500,19 @@ BOOLEAN QxlDevice::AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src
     return TRUE;
 }
 
+void QxlDevice::DiscardDrawable(QXLDrawable *drawable)
+{
+    PAGED_CODE();
+    PLIST_ENTRY pDelayedList = DelayedList(drawable);
+    // if some delayed chunks were allocated, free them
+    while (!IsListEmpty(pDelayedList)) {
+        DelayedChunk *pdc = (DelayedChunk *)RemoveHeadList(pDelayedList);
+        delete[] reinterpret_cast<BYTE*>(pdc);
+    }
+    ReleaseOutput(drawable->release_info.id);
+    DbgPrint(TRACE_LEVEL_WARNING, ("%s\n", __FUNCTION__));
+}
+
 QXLDrawable *QxlDevice::PrepareBltBits (
     BLT_INFO* pDst,
     CONST BLT_INFO* pSrc,
@@ -4549,13 +4562,7 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     src += pSrc->Pitch * (height - 1);
 
     if (!AttachNewBitmap(drawable, src, src_end, (INT)pSrc->Pitch, !g_bSupportVSync)) {
-        PLIST_ENTRY pDelayedList = DelayedList(drawable);
-        // if some delayed chunks were allocated, free them
-        while (!IsListEmpty(pDelayedList)) {
-            DelayedChunk *pdc = (DelayedChunk *)RemoveHeadList(pDelayedList);
-            delete[] reinterpret_cast<BYTE*>(pdc);
-        }
-        ReleaseOutput(drawable->release_info.id);
+        DiscardDrawable(drawable);
         drawable = NULL;
     } else {
         DbgPrint(TRACE_LEVEL_INFORMATION, ("%s drawable= %p type = %d, effect = %d Dest right(%d) left(%d) top(%d) bottom(%d) src_bitmap= %p.\n", __FUNCTION__,

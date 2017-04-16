@@ -603,6 +603,7 @@ private:
     void WaitForCursorRing(void);
     void PushCursor(void);
     BOOLEAN AttachNewBitmap(QXLDrawable *drawable, UINT8 *src, UINT8 *src_end, INT pitch, BOOLEAN bForce);
+    void DiscardDrawable(QXLDrawable *drawable);
     BOOLEAN PutBytesAlign(QXLDataChunk **chunk_ptr, UINT8 **now_ptr,
                             UINT8 **end_ptr, UINT8 *src, int size,
                             size_t alloc_size, PLIST_ENTRY pDelayed);
