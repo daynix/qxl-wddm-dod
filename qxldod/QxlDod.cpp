@@ -3250,6 +3250,22 @@ NTSTATUS QxlDevice::QueryCurrentMode(PVIDEO_MODE RequestedMode)
     return Status;
 }
 
+template<typename Closure>
+class QxlGenericOperation: public QxlPresentOperation
+{
+public:
+    QxlGenericOperation(const Closure &_closure) : closure(_closure) { PAGED_CODE(); }
+    void Run() override { PAGED_CODE(); closure(); }
+private:
+    Closure closure;
+};
+
+template<typename Closure>
+__forceinline QxlPresentOperation *BuildQxlOperation(Closure &&closure)
+{
+    return new (PagedPool) QxlGenericOperation<Closure>(closure);
+}
+
 NTSTATUS QxlDevice::SetCurrentMode(ULONG Mode)
 {
     PAGED_CODE();
@@ -3258,11 +3274,27 @@ NTSTATUS QxlDevice::SetCurrentMode(ULONG Mode)
     {
         if (Mode == m_ModeNumbers[idx])
         {
-            DestroyPrimarySurface();
-            CreatePrimarySurface(&m_ModeInfo[idx]);
+            if (!m_PresentThread)
+                break;
             DbgPrint(TRACE_LEVEL_INFORMATION, ("%s device %d: setting current mode %d (%d x %d)\n",
                 __FUNCTION__, m_Id, Mode, m_ModeInfo[idx].VisScreenWidth,
                 m_ModeInfo[idx].VisScreenHeight));
+
+            // execute the operation in the worker thread to avoiding
+            // executing drawing commands while changing resolution
+            KEVENT finishEvent;
+            KeInitializeEvent(&finishEvent, SynchronizationEvent, FALSE);
+            ++m_DrawGeneration;
+            QxlPresentOperation *operation = BuildQxlOperation([=, this, &finishEvent]() {
+                PAGED_CODE();
+                DestroyPrimarySurface();
+                CreatePrimarySurface(&m_ModeInfo[idx]);
+                KeSetEvent(&finishEvent, IO_NO_INCREMENT, FALSE);
+            });
+            if (!operation)
+                return STATUS_NO_MEMORY;
+            PostToWorkerThread(operation);
+            WaitForObject(&finishEvent, NULL);
             return STATUS_SUCCESS;
         }
     }
@@ -3892,6 +3924,34 @@ QxlDevice::ExecutePresentDisplayOnly(
         SrcBltInfo.Height = DstBltInfo.Height;
     }
 
+    uint16_t currentGeneration = m_DrawGeneration;
+    QxlPresentOperation *operation = BuildQxlOperation([=, this]() {
+        PAGED_CODE();
+        ULONG delayed = 0;
+
+        for (UINT i = 0; pDrawables[i]; ++i)
+        {
+            ULONG n = PrepareDrawable(pDrawables[i]);
+            // only reason why drawables[i] is zeroed is stop flow
+            if (pDrawables[i]) {
+                delayed += n;
+                if (currentGeneration == m_DrawGeneration)
+                    PushDrawable(pDrawables[i]);
+                else
+                    DiscardDrawable(pDrawables[i]);
+            }
+        }
+        delete[] pDrawables;
+        if (delayed) {
+            DbgPrint(TRACE_LEVEL_WARNING, ("%s: %d delayed chunks\n", __FUNCTION__, delayed));
+        }
+    });
+    if (!operation) {
+        MmUnlockPages(ctx->Mdl);
+        IoFreeMdl(ctx->Mdl);
+        delete[] pDrawables;
+        return STATUS_NO_MEMORY;
+    }
 
     // Copy all the scroll rects from source image to video frame buffer.
     for (UINT i = 0; i < ctx->NumMoves; i++)
@@ -3936,7 +3996,7 @@ QxlDevice::ExecutePresentDisplayOnly(
 
     pDrawables[nIndex] = NULL;
 
-    PostToWorkerThread(pDrawables);
+    PostToWorkerThread(operation);
 
     return STATUS_SUCCESS;
 }
@@ -5164,6 +5224,10 @@ void QxlDevice::StopPresentThread()
     if (m_PresentThread)
     {
         DbgPrint(TRACE_LEVEL_INFORMATION, ("---> %s\n", __FUNCTION__));
+        // this cause pending drawing operation to be discarded instead
+        // of executed, there's no reason to execute them if we are
+        // destroying the device
+        ++m_DrawGeneration;
         PostToWorkerThread(NULL);
         NTSTATUS Status = ObReferenceObjectByHandle(
             m_PresentThread, 0, NULL, KernelMode, &pDispatcherObject, NULL);
@@ -5247,14 +5311,12 @@ void QxlDevice::PresentThreadRoutine()
     PAGED_CODE();
     int wait;
     int notify;
-    ULONG delayed = 0;
-    QXLDrawable** drawables;
 
     DbgPrint(TRACE_LEVEL_INFORMATION, ("--->%s\n", __FUNCTION__));
 
     while (1)
     {
-        // Pop a drawables list from the ring
+        // Pop an operation from the ring
         // No need for a mutex, only one consumer thread
         SPICE_RING_CONS_WAIT(m_PresentRing, wait);
         while (wait) {
@@ -5262,35 +5324,22 @@ void QxlDevice::PresentThreadRoutine()
             DoWaitForObject(&m_PresentEvent, NULL, NULL);
             SPICE_RING_CONS_WAIT(m_PresentRing, wait);
         }
-        drawables = *SPICE_RING_CONS_ITEM(m_PresentRing);
+        QxlPresentOperation *operation = *SPICE_RING_CONS_ITEM(m_PresentRing);
         SPICE_RING_POP(m_PresentRing, notify);
         if (notify) {
             KeSetEvent(&m_PresentThreadReadyEvent, 0, FALSE);
         }
 
-        if (drawables) {
-            for (UINT i = 0; drawables[i]; ++i)
-            {
-                ULONG n = PrepareDrawable(drawables[i]);
-                // only reason why drawables[i] is zeroed is stop flow
-                if (drawables[i]) {
-                    delayed += n;
-                    PushDrawable(drawables[i]);
-                }
-            }
-            delete[] drawables;
-        } else {
+        if (!operation) {
             DbgPrint(TRACE_LEVEL_WARNING, ("%s is being terminated\n", __FUNCTION__));
             break;
         }
-        if (delayed) {
-            DbgPrint(TRACE_LEVEL_WARNING, ("%s: %d delayed chunks\n", __FUNCTION__, delayed));
-            delayed = 0;
-        }
+        operation->Run();
+        delete operation;
     }
 }
 
-void QxlDevice::PostToWorkerThread(QXLDrawable** drawables)
+void QxlDevice::PostToWorkerThread(QxlPresentOperation *operation)
 {
     PAGED_CODE();
     // Push drawables into PresentRing and notify worker thread
@@ -5300,7 +5349,7 @@ void QxlDevice::PostToWorkerThread(QXLDrawable** drawables)
         WaitForObject(&m_PresentThreadReadyEvent, NULL);
         SPICE_RING_PROD_WAIT(m_PresentRing, wait);
     }
-    *SPICE_RING_PROD_ITEM(m_PresentRing) = drawables;
+    *SPICE_RING_PROD_ITEM(m_PresentRing) = operation;
     SPICE_RING_PUSH(m_PresentRing, notify);
     if (notify) {
         KeSetEvent(&m_PresentEvent, 0, FALSE);

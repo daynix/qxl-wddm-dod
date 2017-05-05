@@ -506,8 +506,20 @@ typedef struct DpcCbContext {
 #define MAX(x, y) (((x) >= (y)) ? (x) : (y))
 #define ALIGN(a, b) (((a) + ((b) - 1)) & ~((b) - 1))
 
+// operation to be run by the presentation thread
+class QxlPresentOperation
+{
+public:
+    QxlPresentOperation() {}
+    QxlPresentOperation(const QxlPresentOperation&) = delete;
+    void operator=(const QxlPresentOperation&) = delete;
+    // execute the operation
+    virtual void Run()=0;
+    virtual ~QxlPresentOperation() {}
+};
+
 #include "start-packed.h"
-SPICE_RING_DECLARE(QXLPresentOnlyRing, QXLDrawable**, 1024);
+SPICE_RING_DECLARE(QXLPresentOnlyRing, QxlPresentOperation*, 1024);
 #include "end-packed.h"
 
 class QxlDevice  :
@@ -620,7 +632,7 @@ private:
     static void PresentThreadRoutineWrapper(HANDLE dev) {
         ((QxlDevice *)dev)->PresentThreadRoutine();
     }
-    void PostToWorkerThread(QXLDrawable** drawables);
+    void PostToWorkerThread(QxlPresentOperation *operation);
 
     static LONG GetMaxSourceMappingHeight(RECT* DirtyRects, ULONG NumDirtyRects);
 
@@ -675,6 +687,10 @@ private:
     QXLPHYSICAL* m_monitor_config_pa;
 
     QXLPresentOnlyRing m_PresentRing[1];
+    // generation, updated when resolution change
+    // this is used to detect if a draw command is obsoleted
+    // and should not be executed
+    uint16_t m_DrawGeneration;
     HANDLE m_PresentThread;
     BOOLEAN m_bActive;
 };
