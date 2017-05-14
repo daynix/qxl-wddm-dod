@@ -1,3 +1,11 @@
+Version 0.17
+    Prepare for hardware compatibility tests for Windows 10
+     - emulation of EDID data
+     - separate thread for rendering operations and display mode change
+     - VSync control
+    Make the driver compatible with Windows 7 device memory scheme
+    Fix problem on VM save/migration
+
 Version 0.16
     Fix black screen when disabled driver for device rev.4
     Fix black screen when enabled driver for device rev.3
