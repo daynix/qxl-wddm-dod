@@ -3551,24 +3551,24 @@ void QxlDevice::UnmapMemory(void)
     PDXGKRNL_INTERFACE pDxgkInterface = m_pQxlDod->GetDxgkInterface();
     if (m_IoMapped && m_IoBase)
     {
-        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, &m_IoBase);
+        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, m_IoBase);
     }
     m_IoBase = NULL;
     if (m_RomHdr)
     {
-        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, &m_RomHdr);
+        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, m_RomHdr);
         m_RomHdr = NULL;
     }
 
     if (m_RamStart)
     {
-        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, &m_RamStart);
+        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, m_RamStart);
         m_RamStart = NULL;
     }
 
     if (m_VRamStart)
     {
-        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, &m_VRamStart);
+        pDxgkInterface->DxgkCbUnmapMemory( pDxgkInterface->DeviceHandle, m_VRamStart);
         m_VRamStart = NULL;
     }
 }
