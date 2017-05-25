@@ -3430,6 +3430,8 @@ NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION*
                             pci_range = QXL_PCI_RANGES;
                             break;
                         default:
+                            DbgPrint(TRACE_LEVEL_WARNING, ("Unused memory range found\n"));
+                            pDxgkInterface->DxgkCbUnmapMemory(pDxgkInterface->DeviceHandle, MemBase);
                             break;
                         }
                     }
