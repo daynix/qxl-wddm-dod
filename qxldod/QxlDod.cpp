@@ -3437,7 +3437,7 @@ NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION*
                     }
                     else
                     {
-                          DbgPrint(TRACE_LEVEL_INFORMATION, ("DxgkCbMapMemor (CmResourceTypeMemory) failed with status 0x%X\n", Status));
+                          DbgPrint(TRACE_LEVEL_ERROR, ("DxgkCbMapMemory (CmResourceTypeMemory) failed with status 0x%X\n", Status));
                     }
 
               }
@@ -3465,7 +3465,7 @@ NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION*
         m_RamHdr->magic != QXL_RAM_MAGIC) 
     {
         UnmapMemory();
-        DbgPrint(TRACE_LEVEL_ERROR, ("%s failed asslocateing HW resources\n", __FUNCTION__));
+        DbgPrint(TRACE_LEVEL_ERROR, ("%s failed initializing HW resources\n", __FUNCTION__));
         return STATUS_UNSUCCESSFUL;
     }
 
