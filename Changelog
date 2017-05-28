@@ -1,3 +1,6 @@
+Version 0.18
+    Fix physical memory unmapping
+
 Version 0.17
     Prepare for hardware compatibility tests for Windows 10
      - emulation of EDID data
