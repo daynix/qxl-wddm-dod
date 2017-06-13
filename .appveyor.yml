@@ -1,0 +1,18 @@
+image: Visual Studio 2015
+
+version: build-{build}-{branch}
+
+before_build:
+  - ren "C:\Program Files (x86)\Windows Kits\10\include\00wdf" "wdf"
+
+build_script: buildAll.bat
+
+skip_commits:
+  message: /\[ci skip\]/
+
+notifications:
+  - provider: Email
+    to: spice-devel@lists.freedesktop.org
+    on_build_success: false
+    on_build_failure: true
+    on_build_status_changed: true
