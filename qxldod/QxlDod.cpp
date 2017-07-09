@@ -570,7 +570,7 @@ NTSTATUS QxlDod::Escape(_In_ CONST DXGKARG_ESCAPE* pEscape)
     NTSTATUS Status = STATUS_SUCCESS;
     QXL_ASSERT(pEscape != NULL);
 
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("<---> %s Flags = %d\n", __FUNCTION__, pEscape->Flags));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<---> %s Flags = %d\n", __FUNCTION__, pEscape->Flags.Value));
 
     Status = m_pHWDevice->Escape(pEscape);
     DbgPrint(TRACE_LEVEL_VERBOSE, ("<---> %s Status = %x\n", __FUNCTION__, Status));
@@ -714,7 +714,7 @@ NTSTATUS QxlDod::IsSupportedVidPn(_Inout_ DXGKARG_ISSUPPORTEDVIDPN* pIsSupported
     NTSTATUS Status = m_DxgkInterface.DxgkCbQueryVidPnInterface(pIsSupportedVidPn->hDesiredVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &pVidPnInterface);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("DxgkCbQueryVidPnInterface failed with Status = 0x%X, hDesiredVidPn = 0x%I64x\n", Status, pIsSupportedVidPn->hDesiredVidPn));
+        DbgPrint(TRACE_LEVEL_ERROR, ("DxgkCbQueryVidPnInterface failed with Status = 0x%X, hDesiredVidPn = 0x%p\n", Status, pIsSupportedVidPn->hDesiredVidPn));
         return Status;
     }
 
@@ -723,7 +723,7 @@ NTSTATUS QxlDod::IsSupportedVidPn(_Inout_ DXGKARG_ISSUPPORTEDVIDPN* pIsSupported
     Status = pVidPnInterface->pfnGetTopology(pIsSupportedVidPn->hDesiredVidPn, &hVidPnTopology, &pVidPnTopologyInterface);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetTopology failed with Status = 0x%X, hDesiredVidPn = 0x%I64x\n", Status, pIsSupportedVidPn->hDesiredVidPn));
+        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetTopology failed with Status = 0x%X, hDesiredVidPn = 0x%p\n", Status, pIsSupportedVidPn->hDesiredVidPn));
         return Status;
     }
 
@@ -738,7 +738,7 @@ NTSTATUS QxlDod::IsSupportedVidPn(_Inout_ DXGKARG_ISSUPPORTEDVIDPN* pIsSupported
         }
         else if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetNumPathsFromSource failed with Status = 0x%X hVidPnTopology = 0x%I64x, SourceId = 0x%I64x",
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetNumPathsFromSource failed with Status = 0x%X hVidPnTopology = 0x%p, SourceId = 0x%x",
                            Status, hVidPnTopology, SourceId));
             return Status;
         }
@@ -803,7 +803,7 @@ NTSTATUS QxlDod::AddSingleSourceMode(_In_ CONST DXGK_VIDPNSOURCEMODESET_INTERFAC
         if (!NT_SUCCESS(Status))
         {
             // If failed to create a new mode info, mode doesn't need to be released since it was never created
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hVidPnSourceModeSet = 0x%I64x", Status, hVidPnSourceModeSet));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hVidPnSourceModeSet = 0x%p", Status, hVidPnSourceModeSet));
             return Status;
         }
 
@@ -829,7 +829,7 @@ NTSTATUS QxlDod::AddSingleSourceMode(_In_ CONST DXGK_VIDPNSOURCEMODESET_INTERFAC
 
             if (Status != STATUS_GRAPHICS_MODE_ALREADY_IN_MODESET)
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hVidPnSourceModeSet = 0x%I64x, pVidPnSourceModeInfo = %p", Status, hVidPnSourceModeSet, pVidPnSourceModeInfo));
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hVidPnSourceModeSet = 0x%p, pVidPnSourceModeInfo = %p", Status, hVidPnSourceModeSet, pVidPnSourceModeInfo));
                 return Status;
             }
         }
@@ -892,7 +892,7 @@ NTSTATUS QxlDod::AddSingleTargetMode(_In_ CONST DXGK_VIDPNTARGETMODESET_INTERFAC
         if (!NT_SUCCESS(Status))
         {
             // If failed to create a new mode info, mode doesn't need to be released since it was never created
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hVidPnTargetModeSet = 0x%I64x", Status, hVidPnTargetModeSet));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hVidPnTargetModeSet = 0x%p", Status, hVidPnTargetModeSet));
             return Status;
         }
         FillSignalInfo(pVidPnTargetModeInfo->VideoSignalInfo, pModeInfo, __FUNCTION__);
@@ -905,7 +905,7 @@ NTSTATUS QxlDod::AddSingleTargetMode(_In_ CONST DXGK_VIDPNTARGETMODESET_INTERFAC
         {
             if (Status != STATUS_GRAPHICS_MODE_ALREADY_IN_MODESET)
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hVidPnTargetModeSet = 0x%I64x, pVidPnTargetModeInfo = %p", Status, hVidPnTargetModeSet, pVidPnTargetModeInfo));
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hVidPnTargetModeSet = 0x%p, pVidPnTargetModeInfo = %p", Status, hVidPnTargetModeSet, pVidPnTargetModeInfo));
             }
             
             // If adding the mode failed, release the mode, if this doesn't work there is nothing that can be done, some memory will get leaked
@@ -931,7 +931,7 @@ NTSTATUS QxlDod::AddSingleMonitorMode(_In_ CONST DXGKARG_RECOMMENDMONITORMODES* 
     if (!NT_SUCCESS(Status))
     {
         // If failed to create a new mode info, mode doesn't need to be released since it was never created
-        DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hMonitorSourceModeSet = 0x%I64x", Status, pRecommendMonitorModes->hMonitorSourceModeSet));
+        DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hMonitorSourceModeSet = 0x%p", Status, pRecommendMonitorModes->hMonitorSourceModeSet));
         return Status;
     }
 
@@ -954,7 +954,7 @@ NTSTATUS QxlDod::AddSingleMonitorMode(_In_ CONST DXGKARG_RECOMMENDMONITORMODES* 
     {
         if (Status != STATUS_GRAPHICS_MODE_ALREADY_IN_MODESET)
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hMonitorSourceModeSet = 0x%I64x, pMonitorSourceMode = 0x%I64x",
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hMonitorSourceModeSet = 0x%p, pMonitorSourceMode = 0x%p",
                             Status, pRecommendMonitorModes->hMonitorSourceModeSet, pMonitorSourceMode));
         }
         else
@@ -980,7 +980,7 @@ NTSTATUS QxlDod::AddSingleMonitorMode(_In_ CONST DXGKARG_RECOMMENDMONITORMODES* 
         if (!NT_SUCCESS(Status))
         {
             // If failed to create a new mode info, mode doesn't need to be released since it was never created
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hMonitorSourceModeSet = 0x%I64x", Status, pRecommendMonitorModes->hMonitorSourceModeSet));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewModeInfo failed with Status = 0x%X, hMonitorSourceModeSet = 0x%p", Status, pRecommendMonitorModes->hMonitorSourceModeSet));
             return Status;
         }
 
@@ -1004,7 +1004,7 @@ NTSTATUS QxlDod::AddSingleMonitorMode(_In_ CONST DXGKARG_RECOMMENDMONITORMODES* 
         {
             if (Status != STATUS_GRAPHICS_MODE_ALREADY_IN_MODESET)
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hMonitorSourceModeSet = 0x%I64x, pMonitorSourceMode = 0x%p",
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAddMode failed with Status = 0x%X, hMonitorSourceModeSet = 0x%p, pMonitorSourceMode = 0x%p",
                                 Status, pRecommendMonitorModes->hMonitorSourceModeSet, pMonitorSourceMode));
             }
         
@@ -1042,7 +1042,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
     NTSTATUS Status = m_DxgkInterface.DxgkCbQueryVidPnInterface(pEnumCofuncModality->hConstrainingVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &pVidPnInterface);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("DxgkCbQueryVidPnInterface failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x", Status, pEnumCofuncModality->hConstrainingVidPn));
+        DbgPrint(TRACE_LEVEL_ERROR, ("DxgkCbQueryVidPnInterface failed with Status = 0x%X, hFunctionalVidPn = 0x%p", Status, pEnumCofuncModality->hConstrainingVidPn));
         return Status;
     }
 
@@ -1050,7 +1050,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
     Status = pVidPnInterface->pfnGetTopology(pEnumCofuncModality->hConstrainingVidPn, &hVidPnTopology, &pVidPnTopologyInterface);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetTopology failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x", Status, pEnumCofuncModality->hConstrainingVidPn));
+        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetTopology failed with Status = 0x%X, hFunctionalVidPn = 0x%p", Status, pEnumCofuncModality->hConstrainingVidPn));
         return Status;
     }
 
@@ -1058,7 +1058,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
     Status = pVidPnTopologyInterface->pfnAcquireFirstPathInfo(hVidPnTopology, &pVidPnPresentPath);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireFirstPathInfo failed with Status =0x%X, hVidPnTopology = 0x%I64x", Status, hVidPnTopology));
+        DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireFirstPathInfo failed with Status =0x%X, hVidPnTopology = 0x%p", Status, hVidPnTopology));
         return Status;
     }
 
@@ -1072,7 +1072,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                                                           &pVidPnSourceModeSetInterface);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, SourceId = 0x%I64x",
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, SourceId = 0x%x",
                            Status, pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnSourceId));
             break;
         }
@@ -1081,7 +1081,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
         Status = pVidPnSourceModeSetInterface->pfnAcquirePinnedModeInfo(hVidPnSourceModeSet, &pVidPnPinnedSourceModeInfo);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePinnedModeInfo failed with Status = 0x%X, hVidPnSourceModeSet = 0x%I64x", Status, hVidPnSourceModeSet));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePinnedModeInfo failed with Status = 0x%X, hVidPnSourceModeSet = 0x%p", Status, hVidPnSourceModeSet));
             break;
         }
 
@@ -1096,7 +1096,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                 Status = pVidPnInterface->pfnReleaseSourceModeSet(pEnumCofuncModality->hConstrainingVidPn, hVidPnSourceModeSet);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, hVidPnSourceModeSet = 0x%I64x",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, hVidPnSourceModeSet = 0x%p",
                                    Status, pEnumCofuncModality->hConstrainingVidPn, hVidPnSourceModeSet));
                     break;
                 }
@@ -1109,7 +1109,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                                                                     &pVidPnSourceModeSetInterface);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, SourceId = 0x%I64x",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, SourceId = 0x%x",
                                    Status, pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnSourceId));
                     break;
                 }
@@ -1121,7 +1121,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
 
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("AddSingleSourceMode failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x", Status, pEnumCofuncModality->hConstrainingVidPn));
+                    DbgPrint(TRACE_LEVEL_ERROR, ("AddSingleSourceMode failed with Status = 0x%X, hFunctionalVidPn = 0x%p", Status, pEnumCofuncModality->hConstrainingVidPn));
                     break;
                 }
 
@@ -1129,7 +1129,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                 Status = pVidPnInterface->pfnAssignSourceModeSet(pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnSourceId, hVidPnSourceModeSet);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnAssignSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, SourceId = 0x%I64x, hVidPnSourceModeSet = 0x%I64x",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnAssignSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, SourceId = 0x%x, hVidPnSourceModeSet = 0x%p",
                                    Status, pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnSourceId, hVidPnSourceModeSet));
                     break;
                 }
@@ -1148,7 +1148,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                                                               &pVidPnTargetModeSetInterface);
             if (!NT_SUCCESS(Status))
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, TargetId = 0x%I64x",
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, TargetId = 0x%x",
                                Status, pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnTargetId));
                 break;
             }
@@ -1156,7 +1156,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
             Status = pVidPnTargetModeSetInterface->pfnAcquirePinnedModeInfo(hVidPnTargetModeSet, &pVidPnPinnedTargetModeInfo);
             if (!NT_SUCCESS(Status))
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePinnedModeInfo failed with Status = 0x%X, hVidPnTargetModeSet = 0x%I64x", Status, hVidPnTargetModeSet));
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePinnedModeInfo failed with Status = 0x%X, hVidPnTargetModeSet = 0x%p", Status, hVidPnTargetModeSet));
                 break;
             }
 
@@ -1167,7 +1167,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                 Status = pVidPnInterface->pfnReleaseTargetModeSet(pEnumCofuncModality->hConstrainingVidPn, hVidPnTargetModeSet);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, hVidPnTargetModeSet = 0x%I64x",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, hVidPnTargetModeSet = 0x%p",
                                        Status, pEnumCofuncModality->hConstrainingVidPn, hVidPnTargetModeSet));
                     break;
                 }
@@ -1180,7 +1180,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                                                                     &pVidPnTargetModeSetInterface);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, TargetId = 0x%I64x",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnCreateNewTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, TargetId = 0x%x",
                                    Status, pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnTargetId));
                     break;
                 }
@@ -1189,7 +1189,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
 
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("AddSingleTargetMode failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x", Status, pEnumCofuncModality->hConstrainingVidPn));
+                    DbgPrint(TRACE_LEVEL_ERROR, ("AddSingleTargetMode failed with Status = 0x%X, hFunctionalVidPn = 0x%p", Status, pEnumCofuncModality->hConstrainingVidPn));
                     break;
                 }
 
@@ -1197,7 +1197,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                 Status = pVidPnInterface->pfnAssignTargetModeSet(pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnTargetId, hVidPnTargetModeSet);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnAssignTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, TargetId = 0x%I64x, hVidPnTargetModeSet = 0x%I64x",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnAssignTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, TargetId = 0x%x, hVidPnTargetModeSet = 0x%p",
                                    Status, pEnumCofuncModality->hConstrainingVidPn, pVidPnPresentPath->VidPnTargetId, hVidPnTargetModeSet));
                     break;
                 }
@@ -1209,7 +1209,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                 Status = pVidPnTargetModeSetInterface->pfnReleaseModeInfo(hVidPnTargetModeSet, pVidPnPinnedTargetModeInfo);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseModeInfo failed with Status = 0x%X, hVidPnTargetModeSet = 0x%I64x, pVidPnPinnedTargetModeInfo = %p",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseModeInfo failed with Status = 0x%X, hVidPnTargetModeSet = 0x%p, pVidPnPinnedTargetModeInfo = %p",
                                         Status, hVidPnTargetModeSet, pVidPnPinnedTargetModeInfo));
                     break;
                 }
@@ -1219,7 +1219,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
                 Status = pVidPnInterface->pfnReleaseTargetModeSet(pEnumCofuncModality->hConstrainingVidPn, hVidPnTargetModeSet);
                 if (!NT_SUCCESS(Status))
                 {
-                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, hVidPnTargetModeSet = 0x%I64x",
+                    DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseTargetModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, hVidPnTargetModeSet = 0x%p",
                                        Status, pEnumCofuncModality->hConstrainingVidPn, hVidPnTargetModeSet));
                     break;
                 }
@@ -1233,7 +1233,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
             Status = pVidPnSourceModeSetInterface->pfnReleaseModeInfo(hVidPnSourceModeSet, pVidPnPinnedSourceModeInfo);
             if (!NT_SUCCESS(Status))
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseModeInfo failed with Status = 0x%X, hVidPnSourceModeSet = 0x%I64x, pVidPnPinnedSourceModeInfo = %p",
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseModeInfo failed with Status = 0x%X, hVidPnSourceModeSet = 0x%p, pVidPnPinnedSourceModeInfo = %p",
                                     Status, hVidPnSourceModeSet, pVidPnPinnedSourceModeInfo));
                 break;
             }
@@ -1246,7 +1246,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
             Status = pVidPnInterface->pfnReleaseSourceModeSet(pEnumCofuncModality->hConstrainingVidPn, hVidPnSourceModeSet);
             if (!NT_SUCCESS(Status))
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%I64x, hVidPnSourceModeSet = 0x%I64x",
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleaseSourceModeSet failed with Status = 0x%X, hConstrainingVidPn = 0x%p, hVidPnSourceModeSet = 0x%p",
                                Status, pEnumCofuncModality->hConstrainingVidPn, hVidPnSourceModeSet));
                 break;
             }
@@ -1296,7 +1296,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
             Status = pVidPnTopologyInterface->pfnUpdatePathSupportInfo(hVidPnTopology, &LocalVidPnPresentPath);
             if (!NT_SUCCESS(Status))
             {
-                DbgPrint(TRACE_LEVEL_ERROR, ("pfnUpdatePathSupportInfo failed with Status = 0x%X, hVidPnTopology = 0x%I64x", Status, hVidPnTopology));
+                DbgPrint(TRACE_LEVEL_ERROR, ("pfnUpdatePathSupportInfo failed with Status = 0x%X, hVidPnTopology = 0x%p", Status, hVidPnTopology));
                 break;
             }
         }
@@ -1307,7 +1307,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
         Status = pVidPnTopologyInterface->pfnAcquireNextPathInfo(hVidPnTopology, pVidPnPresentPathTemp, &pVidPnPresentPath);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireNextPathInfo failed with Status = 0x%X, hVidPnTopology = 0x%I64x, pVidPnPresentPathTemp = %p", Status, hVidPnTopology, pVidPnPresentPathTemp));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireNextPathInfo failed with Status = 0x%X, hVidPnTopology = 0x%p, pVidPnPresentPathTemp = %p", Status, hVidPnTopology, pVidPnPresentPathTemp));
             break;
         }
 
@@ -1315,7 +1315,7 @@ NTSTATUS QxlDod::EnumVidPnCofuncModality(_In_ CONST DXGKARG_ENUMVIDPNCOFUNCMODAL
         NTSTATUS TempStatus = pVidPnTopologyInterface->pfnReleasePathInfo(hVidPnTopology, pVidPnPresentPathTemp);
         if (!NT_SUCCESS(TempStatus))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleasePathInfo failed with Status = 0x%X, hVidPnTopology = 0x%I64x, pVidPnPresentPathTemp = %p", TempStatus, hVidPnTopology, pVidPnPresentPathTemp));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleasePathInfo failed with Status = 0x%X, hVidPnTopology = 0x%p, pVidPnPresentPathTemp = %p", TempStatus, hVidPnTopology, pVidPnPresentPathTemp));
             Status = TempStatus;
             break;
         }
@@ -1438,7 +1438,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
     Status = m_DxgkInterface.DxgkCbQueryVidPnInterface(pCommitVidPn->hFunctionalVidPn, DXGK_VIDPN_INTERFACE_VERSION_V1, &pVidPnInterface);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("DxgkCbQueryVidPnInterface failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x", Status, pCommitVidPn->hFunctionalVidPn));
+        DbgPrint(TRACE_LEVEL_ERROR, ("DxgkCbQueryVidPnInterface failed with Status = 0x%X, hFunctionalVidPn = 0x%p", Status, pCommitVidPn->hFunctionalVidPn));
         goto CommitVidPnExit;
     }
 
@@ -1446,7 +1446,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
     Status = pVidPnInterface->pfnGetTopology(pCommitVidPn->hFunctionalVidPn, &hVidPnTopology, &pVidPnTopologyInterface);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetTopology failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x", Status, pCommitVidPn->hFunctionalVidPn));
+        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetTopology failed with Status = 0x%X, hFunctionalVidPn = 0x%p", Status, pCommitVidPn->hFunctionalVidPn));
         goto CommitVidPnExit;
     }
 
@@ -1454,7 +1454,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
     Status = pVidPnTopologyInterface->pfnGetNumPaths(hVidPnTopology, &NumPaths);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetNumPaths failed with Status = 0x%X, hVidPnTopology = 0x%I64x", Status, hVidPnTopology));
+        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetNumPaths failed with Status = 0x%X, hVidPnTopology = 0x%p", Status, hVidPnTopology));
         goto CommitVidPnExit;
     }
 
@@ -1467,7 +1467,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
                                                           &pVidPnSourceModeSetInterface);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireSourceModeSet failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x, SourceId = 0x%I64x", Status, pCommitVidPn->hFunctionalVidPn, pCommitVidPn->AffectedVidPnSourceId));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquireSourceModeSet failed with Status = 0x%X, hFunctionalVidPn = 0x%p, SourceId = 0x%x", Status, pCommitVidPn->hFunctionalVidPn, pCommitVidPn->AffectedVidPnSourceId));
             goto CommitVidPnExit;
         }
 
@@ -1475,7 +1475,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
         Status = pVidPnSourceModeSetInterface->pfnAcquirePinnedModeInfo(hVidPnSourceModeSet, &pPinnedVidPnSourceModeInfo);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePinnedModeInfo failed with Status = 0x%X, hFunctionalVidPn = 0x%I64x", Status, pCommitVidPn->hFunctionalVidPn));
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePinnedModeInfo failed with Status = 0x%X, hFunctionalVidPn = 0x%p", Status, pCommitVidPn->hFunctionalVidPn));
             goto CommitVidPnExit;
         }
     }
@@ -1513,7 +1513,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
     Status = pVidPnTopologyInterface->pfnGetNumPathsFromSource(hVidPnTopology, pCommitVidPn->AffectedVidPnSourceId, &NumPathsFromSource);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetNumPathsFromSource failed with Status = 0x%X, hVidPnTopology = 0x%I64x", Status, hVidPnTopology));
+        DbgPrint(TRACE_LEVEL_ERROR, ("pfnGetNumPathsFromSource failed with Status = 0x%X, hVidPnTopology = 0x%p", Status, hVidPnTopology));
         goto CommitVidPnExit;
     }
 
@@ -1525,7 +1525,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
         Status = pVidPnTopologyInterface->pfnEnumPathTargetsFromSource(hVidPnTopology, pCommitVidPn->AffectedVidPnSourceId, PathIndex, &TargetId);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnEnumPathTargetsFromSource failed with Status = 0x%X, hVidPnTopology = 0x%I64x, SourceId = 0x%I64x, PathIndex = 0x%I64x",
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnEnumPathTargetsFromSource failed with Status = 0x%X, hVidPnTopology = 0x%p, SourceId = 0x%x, PathIndex = 0x%I64x",
                             Status, hVidPnTopology, pCommitVidPn->AffectedVidPnSourceId, PathIndex));
             goto CommitVidPnExit;
         }
@@ -1534,7 +1534,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
         Status = pVidPnTopologyInterface->pfnAcquirePathInfo(hVidPnTopology, pCommitVidPn->AffectedVidPnSourceId, TargetId, &pVidPnPresentPath);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePathInfo failed with Status = 0x%X, hVidPnTopology = 0x%I64x, SourceId = 0x%I64x, TargetId = 0x%I64x",
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnAcquirePathInfo failed with Status = 0x%X, hVidPnTopology = 0x%p, SourceId = 0x%x, TargetId = 0x%x",
                             Status, hVidPnTopology, pCommitVidPn->AffectedVidPnSourceId, TargetId));
             goto CommitVidPnExit;
         }
@@ -1554,7 +1554,7 @@ NTSTATUS QxlDod::CommitVidPn(_In_ CONST DXGKARG_COMMITVIDPN* CONST pCommitVidPn)
         Status = pVidPnTopologyInterface->pfnReleasePathInfo(hVidPnTopology, pVidPnPresentPath);
         if (!NT_SUCCESS(Status))
         {
-            DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleasePathInfo failed with Status = 0x%X, hVidPnTopoogy = 0x%I64x, pVidPnPresentPath = %p",
+            DbgPrint(TRACE_LEVEL_ERROR, ("pfnReleasePathInfo failed with Status = 0x%X, hVidPnTopoogy = 0x%p, pVidPnPresentPath = %p",
                             Status, hVidPnTopology, pVidPnPresentPath));
             goto CommitVidPnExit;
         }
@@ -1933,7 +1933,7 @@ NTSTATUS QxlDod::RegisterHWInfo(_In_ ULONG Id)
     Status = IoOpenDeviceRegistryKey(m_pPhysicalDevice, PLUGPLAY_REGKEY_DRIVER, KEY_SET_VALUE, &DevInstRegKeyHandle);
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("IoOpenDeviceRegistryKey failed for PDO: 0x%I64x, Status: 0x%X", m_pPhysicalDevice, Status));
+        DbgPrint(TRACE_LEVEL_ERROR, ("IoOpenDeviceRegistryKey failed for PDO: 0x%p, Status: 0x%X", m_pPhysicalDevice, Status));
         return Status;
     }
 
@@ -2360,7 +2360,7 @@ VOID BltBits (
     #pragma prefast(suppress: __WARNING_EXCEPTIONEXECUTEHANDLER, "try/except is only able to protect against user-mode errors and these are the only errors we try to catch here");
     __except(EXCEPTION_EXECUTE_HANDLER)
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("Either dst (0x%I64x) or src (0x%I64x) bits encountered exception during access.\n", pDst->pBits, pSrc->pBits));
+        DbgPrint(TRACE_LEVEL_ERROR, ("Either dst (0x%p) or src (0x%p) bits encountered exception during access.\n", pDst->pBits, pSrc->pBits));
     }
 }
 
@@ -3377,7 +3377,7 @@ NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION*
                        m_IoBase = (PUCHAR)(ULONG_PTR)pResDescriptor->u.Port.Start.QuadPart;
                        m_IoSize = pResDescriptor->u.Port.Length;
                    }
-                   DbgPrint(TRACE_LEVEL_VERBOSE, ("io_base  [%X-%X]\n",
+                   DbgPrint(TRACE_LEVEL_VERBOSE, ("io_base  [%p-%p]\n",
                                  m_IoBase,
                                  m_IoBase +
                                  m_IoSize));
@@ -4084,7 +4084,7 @@ UINT64 QxlDevice::ReleaseOutput(UINT64 output_id)
     UINT64 next;
 
     ASSERT(output_id);
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("--->%s 0x%x\n", __FUNCTION__, output));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("--->%s 0x%p\n", __FUNCTION__, output));
 
     for (now = output->resources, end = now + output->num_res; now < end; now++) {
         RELEASE_RES(*now);
@@ -4157,7 +4157,7 @@ void *QxlDevice::AllocMem(UINT32 mspace_type, size_t size, BOOL force)
 
     ASSERT((!ptr && (!force || !m_bActive)) || (ptr >= m_MSInfo[mspace_type].mspace_start &&
                                       ptr < m_MSInfo[mspace_type].mspace_end));
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("<---%s: ptr 0x%x\n", __FUNCTION__, ptr));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<---%s: ptr 0x%p\n", __FUNCTION__, ptr));
     return ptr;
 }
 
@@ -4198,7 +4198,7 @@ QXLDrawable *QxlDevice::GetDrawable()
     output->num_res = 0;
     RESOURCE_TYPE(output, RESOURCE_TYPE_DRAWABLE);
     ((QXLDrawable *)output->data)->release_info.id = (UINT64)output;
-    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--> %s 0x%x\n", __FUNCTION__, output));
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("<--> %s 0x%p\n", __FUNCTION__, output));
     return(QXLDrawable *)output->data;
 }
 
@@ -4627,7 +4627,7 @@ QXLDrawable *QxlDevice::PrepareBltBits (
         DiscardDrawable(drawable);
         drawable = NULL;
     } else {
-        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s drawable= %p type = %d, effect = %d Dest right(%d) left(%d) top(%d) bottom(%d) src_bitmap= %p.\n", __FUNCTION__,
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s drawable= %p type = %d, effect = %d Dest right(%d) left(%d) top(%d) bottom(%d) src_bitmap= %I64x.\n", __FUNCTION__,
             drawable, drawable->type, drawable->effect, drawable->surfaces_rects[0].right, drawable->surfaces_rects[0].left,
             drawable->surfaces_rects[0].top, drawable->surfaces_rects[0].bottom,
             drawable->u.copy.src_bitmap));
@@ -4881,7 +4881,7 @@ NTSTATUS QxlDevice::SetCustomDisplay(QXLEscapeSetCustomDisplay* custom_display)
     UINT bpp = QXL_BPP;
     DbgPrint(TRACE_LEVEL_WARNING, ("%s - %d (%dx%d#%d)\n", __FUNCTION__, m_Id, xres, yres, bpp));
     if (xres < MIN_WIDTH_SIZE || yres < MIN_HEIGHT_SIZE) {
-        DbgPrint(TRACE_LEVEL_VERBOSE, ("%s: (%dx%d#%d) less than (%dxd)\n", __FUNCTION__,
+        DbgPrint(TRACE_LEVEL_VERBOSE, ("%s: (%dx%d#%d) less than (%dx%d)\n", __FUNCTION__,
             xres, yres, bpp, MIN_WIDTH_SIZE, MIN_HEIGHT_SIZE));
     }
     m_CustomMode =(USHORT) ((m_CustomMode == m_ModeCount-1)?  m_ModeCount - 2 : m_ModeCount - 1);

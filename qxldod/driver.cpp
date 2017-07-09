@@ -170,7 +170,7 @@ DodAddDevice(
     if ((pPhysicalDeviceObject == NULL) ||
         (ppDeviceContext == NULL))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("One of pPhysicalDeviceObject (0x%I64x), ppDeviceContext (0x%I64x) is NULL",
+        DbgPrint(TRACE_LEVEL_ERROR, ("One of pPhysicalDeviceObject (0x%p), ppDeviceContext (0x%p) is NULL",
                         pPhysicalDeviceObject, ppDeviceContext));
         return STATUS_INVALID_PARAMETER;
     }
