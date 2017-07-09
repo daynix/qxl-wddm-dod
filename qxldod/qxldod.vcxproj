@@ -185,6 +185,8 @@
     <ClCompile>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DDK_INC_PATH);$(SDK_INC_PATH);.\Include</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
+      <WppScanConfigurationData>WppTrace.h</WppScanConfigurationData>
+      <WppEnabled>true</WppEnabled>
     </ClCompile>
     <PostBuildEvent>
       <Command>Inf2Cat /driver:$(OutDir) /os:8_X86,6_3_X86</Command>
@@ -255,6 +257,8 @@
     <ClCompile>
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories);$(DDK_INC_PATH);$(SDK_INC_PATH);.\Include</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
+      <WppScanConfigurationData>WppTrace.h</WppScanConfigurationData>
+      <WppEnabled>true</WppEnabled>
     </ClCompile>
     <PostBuildEvent>
       <Command>Inf2Cat /driver:$(OutDir) /os:8_X64,Server8_X64,Server6_3_X64,6_3_X64</Command>
@@ -277,6 +281,7 @@
     <ClInclude Include="driver.h" />
     <ClInclude Include="QxlDod.h" />
     <ClInclude Include="resource.h" />
+    <ClInclude Include="WppTrace.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BaseObject.cpp" />

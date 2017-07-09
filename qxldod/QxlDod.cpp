@@ -12,6 +12,9 @@
 #include "qxldod.h"
 #include "qxl_windows.h"
 #include "compat.h"
+#if !DBG
+#include "qxldod.tmh"
+#endif
 
 #pragma code_seg("PAGE")
 

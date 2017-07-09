@@ -10,6 +10,9 @@
 
 #include "driver.h"
 #include "QxlDod.h"
+#if !DBG
+#include "driver.tmh"
+#endif
 
 #pragma code_seg(push)
 #pragma code_seg("INIT")
@@ -61,6 +64,8 @@ DriverEntry(
     _In_  UNICODE_STRING* pRegistryPath)
 {
     PAGED_CODE();
+
+    WPP_INIT_TRACING(NULL, NULL);
 
     DbgPrint(TRACE_LEVEL_FATAL, ("---> KMDOD build on on %s %s\n", __DATE__, __TIME__));
 
@@ -157,6 +162,7 @@ DodUnload(VOID)
 {
     PAGED_CODE();
     DbgPrint(TRACE_LEVEL_INFORMATION, ("<--> %s\n", __FUNCTION__));
+    WPP_CLEANUP(NULL);
 }
 
 NTSTATUS

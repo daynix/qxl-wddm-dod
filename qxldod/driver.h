@@ -10,7 +10,7 @@
 
 #pragma once
 #include "BaseObject.h"
-
+#include "WppTrace.h"
 
 extern "C"
 DRIVER_INITIALIZE DriverEntry;
