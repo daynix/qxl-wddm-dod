@@ -34,6 +34,9 @@
     <ClInclude Include="QxlDod.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="WppTrace.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BaseObject.cpp">
