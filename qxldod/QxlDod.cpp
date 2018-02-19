@@ -2579,8 +2579,8 @@ NTSTATUS VgaDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
         {
             m_ModeNumbers[SuitableModeCount] = ModeTemp;
             SetVideoModeInfo(SuitableModeCount, &tmpModeInfo);
-            if (tmpModeInfo.XResolution == MIN_WIDTH_SIZE &&
-                tmpModeInfo.YResolution == MIN_HEIGHT_SIZE)
+            if (tmpModeInfo.XResolution == INITIAL_WIDTH &&
+                tmpModeInfo.YResolution == INITIAL_HEIGHT)
             {
                 m_CurrentMode = (USHORT)SuitableModeCount;
             }
@@ -3186,8 +3186,8 @@ NTSTATUS QxlDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
     UINT BitsPerPixel = BPPFromPixelFormat(pDispInfo->ColorFormat);
     if (Width == 0 || Height == 0 || BitsPerPixel != QXL_BPP)
     {
-        Width = MIN_WIDTH_SIZE;
-        Height = MIN_HEIGHT_SIZE;
+        Width = INITIAL_WIDTH;
+        Height = INITIAL_HEIGHT;
         BitsPerPixel = QXL_BPP;
     }
 
@@ -3206,8 +3206,8 @@ NTSTATUS QxlDevice::GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo)
         {
             m_ModeNumbers[SuitableModeCount] = SuitableModeCount;
             SetVideoModeInfo(SuitableModeCount, tmpModeInfo);
-            if (tmpModeInfo->x_res == MIN_WIDTH_SIZE &&
-                tmpModeInfo->y_res == MIN_HEIGHT_SIZE)
+            if (tmpModeInfo->x_res == INITIAL_WIDTH &&
+                tmpModeInfo->y_res == INITIAL_HEIGHT)
             {
                 m_CurrentMode = SuitableModeCount;
             }
@@ -5147,8 +5147,8 @@ NTSTATUS HwDeviceInterface::AcquireDisplayInfo(DXGK_DISPLAY_INFORMATION& DispInf
     if (DispInfo.Width == 0)
     {
         DispInfo.ColorFormat = D3DDDIFMT_A8R8G8B8;
-        DispInfo.Width = MIN_WIDTH_SIZE;
-        DispInfo.Height = MIN_HEIGHT_SIZE;
+        DispInfo.Width = INITIAL_WIDTH;
+        DispInfo.Height = INITIAL_HEIGHT;
         DispInfo.Pitch = DispInfo.Width * BPPFromPixelFormat(DispInfo.ColorFormat) / BITS_PER_BYTE;
         DispInfo.TargetId = 0;
     }
