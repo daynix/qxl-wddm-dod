@@ -35,9 +35,9 @@ QxlDod_Files_Driver = 12
 ;
 
 [Manufacturer]
-%RHEL%=RHEL,NT$ARCH$
+%RHEL%=RHEL,NT$ARCH$.6.2
 
-[RHEL.NT$ARCH$]
+[RHEL.NT$ARCH$.6.2]
 %RHELQxl.DeviceDesc% = QxlDod_Inst, PCI\VEN_1B36&DEV_0100&SUBSYS_11001AF4
 
 [QxlDod_Files_Driver]
