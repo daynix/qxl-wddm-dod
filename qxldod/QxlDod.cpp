@@ -4607,9 +4607,6 @@ QXLDrawable *QxlDevice::PrepareBltBits (
     drawable->surfaces_dest[0] = 0;
     CopyRect(&drawable->surfaces_rects[0], pRect);
 
-    drawable->self_bitmap = TRUE;
-    CopyRect(&drawable->self_bitmap_area, pRect);
-
     height = pRect->bottom - pRect->top;
     width = pRect->right - pRect->left;
 
