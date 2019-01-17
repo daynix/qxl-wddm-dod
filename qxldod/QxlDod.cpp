@@ -189,6 +189,12 @@ NTSTATUS QxlDod::StartDevice(_In_  DXGK_START_INFO*   pDxgkStartInfo,
         return Status;
     }
 
+    DXGK_DISPLAY_INFORMATION *pInfo = &m_CurrentModes[0].DispInfo;
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("%s: Initial display info:\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("ACPI/Target Id: %d:%d\n", pInfo->AcpiId, pInfo->TargetId));
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("W/H/Pitch/Color:%d:%d:%d:%d\n", pInfo->Width, pInfo->Height, pInfo->Pitch, pInfo->ColorFormat));
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("Physical address:%I64x\n", pInfo->PhysicAddress.QuadPart));
+
     Status = RegisterHWInfo(m_pHWDevice->GetId());
     if (!NT_SUCCESS(Status))
     {
@@ -668,6 +674,12 @@ NTSTATUS QxlDod::StopDeviceAndReleasePostDisplayOwnership(_In_  D3DDDI_VIDEO_PRE
     m_pHWDevice->BlackOutScreen(&m_CurrentModes[SourceId]);
 
     *pDisplayInfo = m_CurrentModes[SourceId].DispInfo;
+    m_pHWDevice->GetFinalDisplayInfo(pDisplayInfo);
+
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("%s: Final display info:\n", __FUNCTION__));
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("ACPI/Target Id: %d:%d\n", pDisplayInfo->AcpiId, pDisplayInfo->TargetId));
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("W/H/Pitch/Color:%d:%d:%d:%d\n", pDisplayInfo->Width, pDisplayInfo->Height, pDisplayInfo->Pitch, pDisplayInfo->ColorFormat));
+    DbgPrint(TRACE_LEVEL_INFORMATION, ("Physical address:%I64x\n", pDisplayInfo->PhysicAddress.QuadPart));
 
     return StopDevice();
 }
@@ -3055,6 +3067,19 @@ NTSTATUS VgaDevice::Escape(_In_ CONST DXGKARG_ESCAPE* pEscap)
     return STATUS_NOT_IMPLEMENTED;
 }
 
+static BOOLEAN IsUefiMode()
+{
+    PAGED_CODE();
+    UNICODE_STRING usName;
+    GUID guid = {};
+    ULONG res, len = sizeof(res);
+    RtlInitUnicodeString(&usName, L"dummy");
+    NTSTATUS status = ExGetFirmwareEnvironmentVariable(&usName, &guid, &res, &len, NULL);
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("%s, status %X\n", __FUNCTION__, status));
+    // on UEFI system the status is STATUS_VARIABLE_NOT_FOUND
+    return status != STATUS_NOT_IMPLEMENTED;
+}
+
 QxlDevice::QxlDevice(_In_ QxlDod* pQxlDod)
 {
     PAGED_CODE();
@@ -3068,6 +3093,8 @@ QxlDevice::QxlDevice(_In_ QxlDod* pQxlDod)
     m_Pending = 0;
     m_PresentThread = NULL;
     m_bActive = FALSE;
+    m_bUefiMode = IsUefiMode();
+    DbgPrint(TRACE_LEVEL_VERBOSE, ("%s, %s mode\n", __FUNCTION__, m_bUefiMode ? "UEFI" : "BIOS"));
 }
 
 QxlDevice::~QxlDevice(void)
@@ -3331,6 +3358,17 @@ NTSTATUS QxlDevice::SetPowerState(DEVICE_POWER_STATE DevicePowerState, DXGK_DISP
     return STATUS_SUCCESS;
 }
 
+void QxlDevice::GetFinalDisplayInfo(DXGK_DISPLAY_INFORMATION* pDisplayInfo)
+{
+    PAGED_CODE();
+    *pDisplayInfo = m_InitialDisplayInfo;
+    pDisplayInfo->TargetId = pDisplayInfo->AcpiId = 0;
+    if (!pDisplayInfo->PhysicAddress.QuadPart)
+    {
+        pDisplayInfo->PhysicAddress = m_RamPA;
+    }
+}
+
 NTSTATUS QxlDevice::HWInit(PCM_RESOURCE_LIST pResList, DXGK_DISPLAY_INFORMATION* pDispInfo)
 {
     PAGED_CODE();
@@ -3530,10 +3568,11 @@ NTSTATUS QxlDevice::QxlInit(DXGK_DISPLAY_INFORMATION* pDispInfo)
         DbgPrint(TRACE_LEVEL_ERROR, ("InitMonitorConfig failed with status 0x%X\n", Status));
         return Status;
     }
-    Status = AcquireDisplayInfo(*(pDispInfo));
+    Status = AcquireDisplayInfo(m_InitialDisplayInfo);
     if (NT_SUCCESS(Status))
     {
         m_bActive = TRUE;
+        *pDispInfo = m_InitialDisplayInfo;
         Status = StartPresentThread();
     }
     if (!NT_SUCCESS(Status)) {
@@ -4728,6 +4767,11 @@ NTSTATUS QxlDevice::HWClose(void)
 {
     PAGED_CODE();
     QxlClose();
+    if (m_bUefiMode)
+    {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s: Resetting the device\n", __FUNCTION__));
+        WRITE_PORT_UCHAR((PUCHAR)(m_IoBase + QXL_IO_RESET), 0);
+    }
     UnmapMemory();
     return STATUS_SUCCESS;
 }
@@ -5143,6 +5187,7 @@ NTSTATUS HwDeviceInterface::AcquireDisplayInfo(DXGK_DISPLAY_INFORMATION& DispInf
 
     if (DispInfo.Width == 0)
     {
+        DbgPrint(TRACE_LEVEL_WARNING, ("QxlDod::AcquireDisplayInfo has zero width!\n"));
         DispInfo.ColorFormat = D3DDDIFMT_A8R8G8B8;
         DispInfo.Width = INITIAL_WIDTH;
         DispInfo.Height = INITIAL_HEIGHT;

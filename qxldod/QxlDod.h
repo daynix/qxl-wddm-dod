@@ -285,6 +285,7 @@ public:
     QXL_NON_PAGED virtual VOID VSyncInterruptPostProcess(_In_ PDXGKRNL_INTERFACE) = 0;
     virtual NTSTATUS AcquireFrameBuffer(CURRENT_BDD_MODE* pCurrentBddMode) { return STATUS_SUCCESS; }
     virtual NTSTATUS ReleaseFrameBuffer(CURRENT_BDD_MODE* pCurrentBddMode) { return STATUS_SUCCESS; }
+    virtual void GetFinalDisplayInfo(DXGK_DISPLAY_INFORMATION* pDisplayInfo) {}
 
     ULONG GetModeCount(void) const {return m_ModeCount;}
     PVIDEO_MODE_INFORMATION GetModeInfo(UINT idx) {return &m_ModeInfo[idx];}
@@ -555,7 +556,8 @@ public:
     NTSTATUS SetPointerShape(_In_ CONST DXGKARG_SETPOINTERSHAPE* pSetPointerShape);
     NTSTATUS SetPointerPosition(_In_ CONST DXGKARG_SETPOINTERPOSITION* pSetPointerPosition);
     NTSTATUS Escape(_In_ CONST DXGKARG_ESCAPE* pEscap);
-    BOOLEAN IsBIOSCompatible() { return FALSE; }
+    BOOLEAN IsBIOSCompatible() { return m_bUefiMode; }
+    void GetFinalDisplayInfo(DXGK_DISPLAY_INFORMATION* pDisplayInfo);
 protected:
     NTSTATUS GetModeList(DXGK_DISPLAY_INFORMATION* pDispInfo);
     QXLDrawable *PrepareBltBits (BLT_INFO* pDst,
@@ -695,6 +697,8 @@ private:
     uint16_t m_DrawGeneration;
     HANDLE m_PresentThread;
     BOOLEAN m_bActive;
+    BOOLEAN m_bUefiMode;
+    DXGK_DISPLAY_INFORMATION m_InitialDisplayInfo;
 };
 
 class QxlDod {
