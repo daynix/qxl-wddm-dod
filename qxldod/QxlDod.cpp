@@ -5169,6 +5169,37 @@ UINT SpiceFromPixelFormat(D3DDDIFORMAT Format)
     }
 }
 
+// Width and Height values for initial video mode are populated by
+// display class driver upon switch from boot display to operational one.
+// This is not documented and can be changed in future, but
+// present under the same key in Win8.1/Win10/2016/2019
+static void RetrieveDisplayDefaults(DXGK_DISPLAY_INFORMATION& DispInfo)
+{
+    PAGED_CODE();
+    RTL_QUERY_REGISTRY_TABLE QueryTable[3] = {};
+    QueryTable[0].Flags = QueryTable[1].Flags = RTL_QUERY_REGISTRY_DIRECT | RTL_QUERY_REGISTRY_TYPECHECK | RTL_QUERY_REGISTRY_REQUIRED;
+    QueryTable[0].DefaultType = QueryTable[1].DefaultType = REG_DWORD << 24;
+    QueryTable[0].Name = L"Height";
+    QueryTable[0].EntryContext = &DispInfo.Height;
+    QueryTable[1].Name = L"Width";
+    QueryTable[1].EntryContext = &DispInfo.Width;
+
+    NTSTATUS status = RtlQueryRegistryValues(RTL_REGISTRY_CONTROL, L"BGFX", QueryTable, NULL, NULL);
+    if (NT_SUCCESS(status))
+    {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s: %dx%d\n", __FUNCTION__, DispInfo.Width, DispInfo.Height));
+    }
+    else
+    {
+        DbgPrint(TRACE_LEVEL_INFORMATION, ("%s: status = %X\n", __FUNCTION__, status));
+        DispInfo.Width = INITIAL_WIDTH;
+        DispInfo.Height = INITIAL_HEIGHT;
+    }
+    DispInfo.ColorFormat = D3DDDIFMT_X8R8G8B8;
+    DispInfo.Pitch = DispInfo.Width * BPPFromPixelFormat(DispInfo.ColorFormat) / BITS_PER_BYTE;
+    DispInfo.TargetId = DispInfo.AcpiId = 0;
+}
+
 NTSTATUS HwDeviceInterface::AcquireDisplayInfo(DXGK_DISPLAY_INFORMATION& DispInfo)
 {
     PAGED_CODE();
@@ -5188,11 +5219,7 @@ NTSTATUS HwDeviceInterface::AcquireDisplayInfo(DXGK_DISPLAY_INFORMATION& DispInf
     if (DispInfo.Width == 0)
     {
         DbgPrint(TRACE_LEVEL_WARNING, ("QxlDod::AcquireDisplayInfo has zero width!\n"));
-        DispInfo.ColorFormat = D3DDDIFMT_A8R8G8B8;
-        DispInfo.Width = INITIAL_WIDTH;
-        DispInfo.Height = INITIAL_HEIGHT;
-        DispInfo.Pitch = DispInfo.Width * BPPFromPixelFormat(DispInfo.ColorFormat) / BITS_PER_BYTE;
-        DispInfo.TargetId = 0;
+        RetrieveDisplayDefaults(DispInfo);
     }
     return Status;
 }
