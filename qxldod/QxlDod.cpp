@@ -5211,9 +5211,10 @@ NTSTATUS HwDeviceInterface::AcquireDisplayInfo(DXGK_DISPLAY_INFORMATION& DispInf
 
     if (!NT_SUCCESS(Status))
     {
-        DbgPrint(TRACE_LEVEL_ERROR, ("QxlDod::AcquireDisplayInfo failed with status 0x%X Width = %d\n",
+        DbgPrint(TRACE_LEVEL_WARNING, ("QxlDod::AcquireDisplayInfo failed with status 0x%X Width = %d\n",
             Status, DispInfo.Width));
-        return STATUS_UNSUCCESSFUL;
+        DispInfo.Width = 0;
+        Status = STATUS_SUCCESS;
     }
 
     if (DispInfo.Width == 0)
